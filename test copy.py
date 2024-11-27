@@ -90,13 +90,16 @@ def translet(image:np.ndarray, fileout:str = "out.txt", *, _a:float = asii_1):
     #600x840
     #11х23 
     
-    contur = img2Angel(img2and(img2DoG(img2gray(image), a=(1, 1), b=(3, 3)), img2cont(img2gray(image))))
+    out_img = img2gray(np.uint8(I_Img2quantize(image, len(_a))))/255*len(_a)
+    #I = lambda x: img2Angel(img2and(img2DoG(x, a=(1, 1), b=(3, 3)), img2cont(x)))
 
+    contur = img2Angel(out_img)
+    out_contur = cv2.resize(contur, new_size)
+    
+    # out_contur = cv2.resize(I_Img2quantize(contur*255, 4), new_size)
     # cv2.imwrite(FTEMP+f"out_5.png", I_Img2quantize(contur*255, 4))
     
-    out_img = cv2.resize(image, new_size)
-    out_contur = cv2.resize(contur, new_size)
-    out_img = img2gray(np.uint8(I_Img2quantize(out_img, len(_a))))/255*len(_a)
+    out_img = cv2.resize(out_img, new_size)
     
     
     
@@ -160,7 +163,7 @@ def translet(image:np.ndarray, fileout:str = "out.txt", *, _a:float = asii_1):
         
         file.write("\n".join(["".join(s) for s in stroca]))  
     
-    out_contur = cv2.resize(I_Img2quantize(contur*255, 4), new_size)
+    out_contur*=255
     
     return out_img, out_contur
 
