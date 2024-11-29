@@ -42,23 +42,23 @@ FTEMP = CWD + "\\~temp\\"
 
 #region Matrix
 kernel2 = np.ones((5, 5), np.float32)/25
-Gx = np.array([[1,  0, -1],[2,  0, -2],[1,  0, -1]])
-Gy = np.array([[1,  2, 1],[0,  0, 0],[-1,  -2, -1]])
-MeanMat:np.ndarray = [1/3, 1/3, 1/3]
-RedMat:np.ndarray = [[1, 0, 0],[0, 0, 0],[0, 0, 0]]
-GreenMat:np.ndarray = [[0, 1, 0],[0, 0, 0],[0, 0, 0]]
-BlueMat:np.ndarray = [[0, 0, 1],[0, 0, 0],[0, 0, 0]]
-MeanMat2Red:np.ndarray = [[1/3, 0, 0],[1/3, 0, 0],[1/3, 0, 0]]
-MeanMat2Green:np.ndarray = [[0, 1/3, 0],[0, 1/3, 0],[0, 1/3, 0]]
-MeanMat2Blue:np.ndarray = [[0, 0, 1/3],[0, 0, 1/3],[0, 0, 1/3]]
-MeanMat2RGB:np.ndarray = [[1/3, 1/3, 1/3],[1/3, 1/3, 1/3],[1/3, 1/3, 1/3]]
+Gx:np.ndarray               = np.array([[1,  0, -1],[2,  0, -2],[1,  0, -1]])
+Gy:np.ndarray               = np.array([[1,  2, 1],[0,  0, 0],[-1,  -2, -1]])
+MeanMat:np.ndarray          = [1/3, 1/3, 1/3]
+RedMat:np.ndarray           = [[1, 0, 0],[0, 0, 0],[0, 0, 0]]
+GreenMat:np.ndarray         = [[0, 1, 0],[0, 0, 0],[0, 0, 0]]
+BlueMat:np.ndarray          = [[0, 0, 1],[0, 0, 0],[0, 0, 0]]
+MeanMat2Red:np.ndarray      = [[1/3, 0, 0],[1/3, 0, 0],[1/3, 0, 0]]
+MeanMat2Green:np.ndarray    = [[0, 1/3, 0],[0, 1/3, 0],[0, 1/3, 0]]
+MeanMat2Blue:np.ndarray     = [[0, 0, 1/3],[0, 0, 1/3],[0, 0, 1/3]]
+MeanMat2RGB:np.ndarray      = [[1/3, 1/3, 1/3],[1/3, 1/3, 1/3],[1/3, 1/3, 1/3]]
 #endregion Matrix
 
 #region IMG2
 img2gray = lambda x: cv2.cvtColor(x, cv2.COLOR_BGR2GRAY)
 img2bgr  = lambda x: cv2.cvtColor(x, cv2.COLOR_GRAY2BGR)
 img2rgb  = lambda x: cv2.cvtColor(x, cv2.COLOR_GRAY2RGB)
-imgbgr2rgb  = lambda x: cv2.cvtColor(x, cv2.COLOR_BGR2RGB)
+img2CRev = lambda x: cv2.cvtColor(x, cv2.COLOR_BGR2RGB)
 img2not  = lambda x: cv2.bitwise_not(x)
 img2and  = lambda x, y: cv2.bitwise_and(x, y) 
 img2or   = lambda x, y: cv2.bitwise_or(x, y)
@@ -106,30 +106,24 @@ def translet(image:np.ndarray, fileout:str = "out.txt", *, _a:Iterable = asii_1)
     # I = lambda x: (np.abs(np.min(x)) + x)/np.max(x)
     # temp_img = img2gray(image)
     # I2 = lambda x, e, fi: np.where(x>=e, 1, 1+np.tanh(fi*(x-e)))
-    # outImg:np.ndarray = I2(I(img2DoG(temp_img, ((7,7),(9,9)), 1.4, 1)), 0.99, 1)
+    # outImg:np.ndarray = I2(I(img2DoG(temp_img, ((7,7),(9,9)), 1.4, 1)), 0.99, 1) 
     
     # temp:np.ndarray = img2blur(image, 7, 7)
     
     # GxImg:np.ndarray = img2filter2D(temp.dot(MeanMat2Red), a=Gx)
-    # GxImg_:np.ndarray = img2filter2D(temp.dot(MeanMat2Blue), a=Gx)
     # GyImg:np.ndarray = img2filter2D(temp.dot(MeanMat2Green), a=Gy)
+
+    
+    # GxImg_:np.ndarray = img2filter2D(temp.dot(MeanMat2Blue), a=Gx)
     # GyImg_:np.ndarray = img2filter2D(temp.dot(MeanMat2Blue), a=Gy)
 
-    # [
-    #     [1/3, 0, 0],
-    #     [1/3, 0, 0],
-    #     [1/3, 0, 0],
-    # ]
+
     # _i = Img2quantize(((np.arctan2(GxImg_, GyImg_)*0.5/np.pi) + 0.5)*255, 5)
     
-    outImg:np.ndarray = Img2quantize(image,len(_a))
+    # outImg:np.ndarray = GxImg+GyImg+np.sqrt(GxImg_**2 + GyImg_**2)
     
-    for i in range(0,len(_a)):
-        cv2.imwrite(FTEMP+f"_out({i}).png", Img2quantize(image, i+1))
-    frames:list[Image.Image] = []
-    packing2GIF(len(_a), frames, FTEMP+f"_out")
-    del frames
-    
+    outImg:np.ndarray = img2filter2D(image, a=Gx)
+
     return outImg 
 
 def getImagis() -> np.ndarray :
@@ -138,24 +132,6 @@ def getImagis() -> np.ndarray :
     assert fileNames[-1].split('.')[-1] in ["png", "jpg", "jpeg", "webp"]
     queueImages:np.ndarray = imgbgr2rgb(cv2.imread(fileNames[-1]))
     return queueImages  
-
-def packing2GIF(lenFrames:int, frames:list[Image.Image] = [], fileout:str="out",) ->  None:
-    
-    for i in range(lenFrames):
-        with Image.open(fileout+f"({i}).png") as frame: 
-            frames.append(frame.copy())
-        os.remove(fileout+f"({i}).png")
-        
-    frames[0].save(
-                fileout + '.gif',
-                save_all=True,
-                append_images=frames[1:],  # Срез который игнорирует первый кадр.
-                optimize=True,
-                duration=100,
-                loop=0
-            )
-    frames.clear()
-
 
 @staticmethod
 def main(ars = None) -> None:
