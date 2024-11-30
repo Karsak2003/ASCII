@@ -4,6 +4,7 @@ from math import ceil
 import sys
 from typing import Any, Iterable, Sequence
 import cv2
+import cv2.data
 import numpy as np  
 import os
 from PIL import Image
@@ -20,7 +21,6 @@ import matplotlib.animation as animation
 
 from tkinter import filedialog as tk_filedialog
 #endregion IMPORT
-
 
 #__________________________________________________________________________________
 asii = """$@B%8&WM*oahkbdpqwmZO0QLCJUYXzcvunxrjft/\\|()1{}[]?-_+~<>i!lI;:,"^`'."""
@@ -39,20 +39,37 @@ asii_3 = r" .',:`;\"i!I^lr1vjcx<>Yft*JL?T7uynozaksFVXeh3Cq2KUdp4SZbA0w5GPg9EOH6m
 CWD = os.getcwd()
 FRESU = CWD + "\\~resu\\"
 FTEMP = CWD + "\\~temp\\"
+K:int = 8
+
+def Mat2N(n:int) -> np.ndarray:
+    assert not(n%2) and (type(n) is int)
+    if n > 2:
+        return np.kron(np.ones((2, 2)), Mat2N(n//2)) + np.kron(Mat2, np.ones((n//2, n//2)))/((n/2)**2)
+    else:
+        return Mat2
 
 #region Matrix
 kernel2 = np.ones((5, 5), np.float32)/25
 Gx:np.ndarray               = np.array([[1,  0, -1],[2,  0, -2],[1,  0, -1]])
 Gy:np.ndarray               = np.array([[1,  2, 1],[0,  0, 0],[-1,  -2, -1]])
-MeanMat:np.ndarray          = [1/3, 1/3, 1/3]
-RedMat:np.ndarray           = [[1, 0, 0],[0, 0, 0],[0, 0, 0]]
-GreenMat:np.ndarray         = [[0, 1, 0],[0, 0, 0],[0, 0, 0]]
-BlueMat:np.ndarray          = [[0, 0, 1],[0, 0, 0],[0, 0, 0]]
-MeanMat2Red:np.ndarray      = [[1/3, 0, 0],[1/3, 0, 0],[1/3, 0, 0]]
-MeanMat2Green:np.ndarray    = [[0, 1/3, 0],[0, 1/3, 0],[0, 1/3, 0]]
-MeanMat2Blue:np.ndarray     = [[0, 0, 1/3],[0, 0, 1/3],[0, 0, 1/3]]
-MeanMat2RGB:np.ndarray      = [[1/3, 1/3, 1/3],[1/3, 1/3, 1/3],[1/3, 1/3, 1/3]]
+MeanMat:np.ndarray          = np.array([1/3, 1/3, 1/3])
+RedMat:np.ndarray           = np.array([[1, 0, 0],[0, 0, 0],[0, 0, 0]])
+GreenMat:np.ndarray         = np.array([[0, 1, 0],[0, 0, 0],[0, 0, 0]])
+BlueMat:np.ndarray          = np.array([[0, 0, 1],[0, 0, 0],[0, 0, 0]])
+MeanMat2Red:np.ndarray      = np.array([[1/3, 0, 0],[1/3, 0, 0],[1/3, 0, 0]])
+MeanMat2Green:np.ndarray    = np.array([[0, 1/3, 0],[0, 1/3, 0],[0, 1/3, 0]])
+MeanMat2Blue:np.ndarray     = np.array([[0, 0, 1/3],[0, 0, 1/3],[0, 0, 1/3]])
+MeanMat2RGB:np.ndarray      = np.array([[1/3, 1/3, 1/3],[1/3, 1/3, 1/3],[1/3, 1/3, 1/3]])
+MeanMat2:np.ndarray         = np.array([[1/3, 1/3, 1/3],[0, 0, 0],[0, 0, 0]])
+
+Mat2:np.ndarray             = np.array(
+    [[0, 2],
+     [3, 4]]
+)/4
+M:np.ndarray    = Mat2N(K)
 #endregion Matrix
+
+
 
 #region IMG2
 img2gray = lambda x: cv2.cvtColor(x, cv2.COLOR_BGR2GRAY)
@@ -73,13 +90,10 @@ img2DoG = lambda x, a=((3, 3),(7, 7)), s=0., t=1.0: (1+t)*img2blur(x, a[0][0], a
 img2Laplacian = lambda x: cv2.Laplacian(x, cv2.CV_64F)
 
 Img2quantize = lambda x, k: np.ceil(x/k + 0.5)*k
-RGB_Img2quantize = lambda x, k: np.ceil(x/k + 0.5)*k
 img2filter2D = lambda x, a=kernel2: cv2.filter2D(src=x, ddepth=-1, kernel=a)
 #endregion IMG2
 
 Sigmoid = lambda x: 1/(1 + np.e**(-x))
-
-
 
 def ImgShow(image) -> None:
     f, a = plt.subplots()
@@ -108,29 +122,49 @@ def translet(image:np.ndarray, fileout:str = "out.txt", *, _a:Iterable = asii_1)
     # I2 = lambda x, e, fi: np.where(x>=e, 1, 1+np.tanh(fi*(x-e)))
     # outImg:np.ndarray = I2(I(img2DoG(temp_img, ((7,7),(9,9)), 1.4, 1)), 0.99, 1) 
     
-    # temp:np.ndarray = img2blur(image, 7, 7)
+    temp:np.ndarray = Img2quantize(image, len(_a))
     
     # GxImg:np.ndarray = img2filter2D(temp.dot(MeanMat2Red), a=Gx)
     # GyImg:np.ndarray = img2filter2D(temp.dot(MeanMat2Green), a=Gy)
 
-    
-    # GxImg_:np.ndarray = img2filter2D(temp.dot(MeanMat2Blue), a=Gx)
-    # GyImg_:np.ndarray = img2filter2D(temp.dot(MeanMat2Blue), a=Gy)
+    GxImg_:np.ndarray = img2filter2D(temp.dot(MeanMat), a=Gx)
+    GyImg_:np.ndarray = img2filter2D(temp.dot(MeanMat), a=Gy)
 
-
-    # _i = Img2quantize(((np.arctan2(GxImg_, GyImg_)*0.5/np.pi) + 0.5)*255, 5)
+    temp:np.ndarray = (np.arctan2(GxImg_, GyImg_)*0.5/np.pi) + 0.5
+    print(temp.min(), temp.max())
+    temp -= temp.min()
+    temp /= temp.max()
+    print(temp.min(), temp.max())
+    ImgShow(temp)
+    del temp, GxImg_, GyImg_
     
-    # outImg:np.ndarray = GxImg+GyImg+np.sqrt(GxImg_**2 + GyImg_**2)
+    s:float = 0.2
     
-    outImg:np.ndarray = img2filter2D(image, a=Gx)
+    temp:np.ndarray = np.dot(image, MeanMat)/255
+    shape:tuple     = image.shape
+    
+    for i in range(shape[0]):
+        for j in range(shape[1]):
+            temp[i][j] += s*(M[i%K][j%K] - 0.5)
+    
+    temp -= temp.min()
+    temp /= temp.max()
+    temp = Img2quantize(temp*255, 2)
+    temp -= temp.min()
+    temp /= temp.max()
+    
+    outImg:np.ndarray = temp*255
 
+    ImgShow(outImg)
+    
     return outImg 
 
 def getImagis() -> np.ndarray :
     fileNames:tuple[str] = tk_filedialog.askopenfilenames(initialdir=FRESU, initialfile="img(0).png")
     if not len(fileNames):sys.exit(0)
     assert fileNames[-1].split('.')[-1] in ["png", "jpg", "jpeg", "webp"]
-    queueImages:np.ndarray = imgbgr2rgb(cv2.imread(fileNames[-1]))
+    # queueImages:np.ndarray = img2CRev(cv2.imread(fileNames[-1]))
+    queueImages:np.ndarray = cv2.imread(fileNames[-1])
     return queueImages  
 
 @staticmethod
