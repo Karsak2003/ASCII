@@ -1,6 +1,6 @@
 
 #region IMPORT
-from math import ceil
+import math 
 import sys
 from typing import Any, Iterable, Sequence
 import cv2
@@ -40,6 +40,7 @@ CWD = os.getcwd()
 FRESU = CWD + "\\~resu\\"
 FTEMP = CWD + "\\~temp\\"
 K:int = 8
+S:float = 0.01
 
 def Mat2N(n:int) -> np.ndarray:
     assert not(n%2) and (type(n) is int)
@@ -69,8 +70,6 @@ Mat2:np.ndarray             = np.array(
 M:np.ndarray    = Mat2N(K)
 #endregion Matrix
 
-
-
 #region IMG2
 img2gray = lambda x: cv2.cvtColor(x, cv2.COLOR_BGR2GRAY)
 img2bgr  = lambda x: cv2.cvtColor(x, cv2.COLOR_GRAY2BGR)
@@ -82,18 +81,26 @@ img2or   = lambda x, y: cv2.bitwise_or(x, y)
 img2xor  = lambda x, y: cv2.bitwise_xor(x, y)
 img2blur = lambda x, a=7, b=7, s=0: cv2.GaussianBlur(x, (a, b), s)
 img2cont = lambda x: cv2.Canny(x, 100, 160)
-#// img2Sobel = lambda x, dx = 1, dy = 1: cv2.Sobel(x, ddepth=cv2.CV_64F, dx=dx, dy=dy, ksize=3, scale=0.1)
-#// img2SobelComb = lambda x: cv2.addWeighted(img2Sobel(x, dy=0), 0.5, img2Sobel(x, dx=0), 0.5, 0)
-#// img2Apletude = lambda x: np.sqrt(img2Sobel(x, dy=0)**2 + img2Sobel(x, dx=0)**2)
-#// img2Angel = lambda x: np.arctan2(img2Sobel(x, dy=0), img2Sobel(x, dx=0))/np.pi * 0.5 + 0.5
 img2DoG = lambda x, a=((3, 3),(7, 7)), s=0., t=1.0: (1+t)*img2blur(x, a[0][0], a[0][1], s)-t*img2blur(x, a[1][0], a[1][1], s)
 img2Laplacian = lambda x: cv2.Laplacian(x, cv2.CV_64F)
 
-Img2quantize = lambda x, k: np.ceil(x/k + 0.5)*k
+Img2quantize = lambda x, h: (np.ceil(x/h) + 0.5)*h
+I_Img2quantize = lambda x, k: np.ceil(x/k + 0.5)*k
 img2filter2D = lambda x, a=kernel2: cv2.filter2D(src=x, ddepth=-1, kernel=a)
 #endregion IMG2
 
 Sigmoid = lambda x: 1/(1 + np.e**(-x))
+
+
+@np.vectorize
+def GetMitemRGB(i:int, j:int, fi:int) -> float: 
+    return  S*(M[i%K][j%K] - 0.5)
+@np.vectorize
+def GetMitem(i:int, j:int) -> float: 
+
+    return  S*(M[(i)%K][(j)%K] - 0.5)
+
+
 
 def ImgShow(image) -> None:
     f, a = plt.subplots()
@@ -101,6 +108,18 @@ def ImgShow(image) -> None:
     fig:Figure = f
     del a, f
     axs.imshow(image)
+    plt.show()
+
+def ImgShow3(image_left, image_сentre, image_right) -> None:
+    f, a = plt.subplots(1, 3)
+    axs:list[Axes] = list(a)
+    fig:Figure = f
+    del a, f
+    
+    axs[0].imshow(image_left)
+    axs[1].imshow(image_сentre)
+    axs[2].imshow(image_right)
+
     plt.show()
 
 def _txt():
@@ -115,49 +134,53 @@ def _txt():
         del outImg
     
     print("".join(list(map((lambda x: x[0]), sorted(list(temp.items()), key=lambda x: x[1])))))
-    
+
 def translet(image:np.ndarray, fileout:str = "out.txt", *, _a:Iterable = asii_1) -> np.ndarray:
-    # I = lambda x: (np.abs(np.min(x)) + x)/np.max(x)
-    # temp_img = img2gray(image)
-    # I2 = lambda x, e, fi: np.where(x>=e, 1, 1+np.tanh(fi*(x-e)))
-    # outImg:np.ndarray = I2(I(img2DoG(temp_img, ((7,7),(9,9)), 1.4, 1)), 0.99, 1) 
     
-    temp:np.ndarray = Img2quantize(image, len(_a))
+    org_size:np.ndarray[int] = np.array([len(image), len(image[0])][::-1])
+    new_size = np.array([998, int((org_size[1]*998//org_size[0])*(11/23))])
+    temp:np.ndarray = cv2.resize(image, new_size)
+    temp = I_Img2quantize(img2gray(temp), len(_a))
     
-    # GxImg:np.ndarray = img2filter2D(temp.dot(MeanMat2Red), a=Gx)
-    # GyImg:np.ndarray = img2filter2D(temp.dot(MeanMat2Green), a=Gy)
+    GxImg_:np.ndarray = img2filter2D(temp, a=Gx)
+    GyImg_:np.ndarray = img2filter2D(temp, a=Gy)
+    contur:np.ndarray = I_Img2quantize(np.arctan(GyImg_/GxImg_)*0.5/np.pi + 0.5, 1/8)
+    contur = ((contur-0.5)/0.5) * 180
+    contur = np.where(contur < 0, contur + 180, contur)
+    del temp, GxImg_, GyImg_  
+    
+    with open(FTEMP+"0_"+fileout, mode="w+") as file:
+        s:str = str(set(contur[np.logical_not(np.isnan(contur))].tolist()))
+        file.write(s)
+        del s 
 
-    GxImg_:np.ndarray = img2filter2D(temp.dot(MeanMat), a=Gx)
-    GyImg_:np.ndarray = img2filter2D(temp.dot(MeanMat), a=Gy)
-
-    temp:np.ndarray = (np.arctan2(GxImg_, GyImg_)*0.5/np.pi) + 0.5
-    print(temp.min(), temp.max())
+    out_contur:np.ndarray = np.abs(contur//45)
+    
+    @np.vectorize
+    def translation2symbols(i:int, j:int):
+        x:int = out_contur[i][j]
+        return ["\\", "|", "/", "_"][int(x)] if not np.isnan(x) else " "
+        
+    
+    with open(FTEMP+"1_"+fileout, mode="w+") as file:
+        stroca = np.fromfunction(translation2symbols, out_contur.shape, dtype=int)
+        file.write("\n".join(["".join(s) for s in stroca]))
+        del stroca
+    
+    ImgShow(contur)
+    cv2.imwrite(FTEMP+f"_out.png", contur*255)
+    
+    temp:np.ndarray = img2gray(image)/255
+    temp += np.fromfunction(GetMitem, temp.shape, dtype=int)
     temp -= temp.min()
     temp /= temp.max()
-    print(temp.min(), temp.max())
-    ImgShow(temp)
-    del temp, GxImg_, GyImg_
+    temp = I_Img2quantize(temp, 1/(len(_a)-1))
     
-    s:float = 0.2
-    
-    temp:np.ndarray = np.dot(image, MeanMat)/255
-    shape:tuple     = image.shape
-    
-    for i in range(shape[0]):
-        for j in range(shape[1]):
-            temp[i][j] += s*(M[i%K][j%K] - 0.5)
-    
-    temp -= temp.min()
-    temp /= temp.max()
-    temp = Img2quantize(temp*255, 2)
-    temp -= temp.min()
-    temp /= temp.max()
-    
-    outImg:np.ndarray = temp*255
+    outImg:np.ndarray = temp
 
     ImgShow(outImg)
     
-    return outImg 
+    return outImg * 255
 
 def getImagis() -> np.ndarray :
     fileNames:tuple[str] = tk_filedialog.askopenfilenames(initialdir=FRESU, initialfile="img(0).png")
