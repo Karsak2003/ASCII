@@ -36,136 +36,118 @@ asii_4 = r" .',:`;\"i!I^lr1vjcx<>Yft*JL?T7uynozaksFVXeh3Cq2KUdp4SZbA0w5GPg9EOH6m
 CWD = os.getcwd()
 FRESU = CWD + "\\~resu\\"
 FTEMP = CWD + "\\~temp\\"
+K:int = 8
+S:float = 0.01
 
-img2gray = lambda x: cv2.cvtColor(x, cv2.COLOR_BGR2GRAY)
-img2bgr  = lambda x: cv2.cvtColor(x, cv2.COLOR_GRAY2BGR)
-img2rgb  = lambda x: cv2.cvtColor(x, cv2.COLOR_GRAY2RGB)
-imgbgr2rgb  = lambda x: cv2.cvtColor(x, cv2.COLOR_BGR2RGB)
-img2not  = lambda x: cv2.bitwise_not(x)
-img2and  = lambda x, y: cv2.bitwise_and(x, y) 
-img2or   = lambda x, y: cv2.bitwise_or(x, y)
-img2xor  = lambda x, y: cv2.bitwise_xor(x, y)
-img2blur = lambda x, a=7, b=7: cv2.GaussianBlur(x, (a, b), 0)
-img2cont = lambda x: cv2.Canny(x, 100, 160)
-img2Sobel = lambda x, dx = 1, dy = 1: cv2.Sobel(x, ddepth=cv2.CV_64F, dx=dx, dy=dy, ksize=3, scale=0.1)
-img2SobelComb = lambda x: cv2.addWeighted(img2Sobel(x, dy=0), 0.5, img2Sobel(x, dx=0), 0.5, 0)
-img2Apletude = lambda x: np.sqrt(img2Sobel(x, dy=0)**2 + img2Sobel(x, dx=0)**2)
-img2Angel = lambda x: np.arctan2(img2Sobel(x, dy=0), img2Sobel(x, dx=0))/np.pi * 0.5 + 0.5
-img2DoG = (lambda x, a=(3, 3), b=(7, 7): img2blur(x, b[0], b[1])-img2blur(x, a[0], a[1]))
-img2Laplacian = lambda x: cv2.Laplacian(x, cv2.CV_64F)
+def Mat2N(n:int) -> np.ndarray:
+    assert not(n%2) and (type(n) is int)
+    if n > 2:
+        return np.kron(np.ones((2, 2)), Mat2N(n//2)) + np.kron(Mat2, np.ones((n//2, n//2)))/((n/2)**2)
+    else:
+        return Mat2
 
+#region Matrix
 kernel2 = np.ones((5, 5), np.float32)/25
-img2filter2D = lambda x, a=kernel2: cv2.filter2D(src=x, ddepth=-1, kernel=a)
+Gx:np.ndarray               = np.array([[1,  0, -1],[2,  0, -2],[1,  0, -1]])
+Gy:np.ndarray               = np.array([[1,  2, 1],[0,  0, 0],[-1,  -2, -1]])
+MeanMat:np.ndarray          = np.array([1/3, 1/3, 1/3])
+RedMat:np.ndarray           = np.array([[1, 0, 0],[0, 0, 0],[0, 0, 0]])
+GreenMat:np.ndarray         = np.array([[0, 1, 0],[0, 0, 0],[0, 0, 0]])
+BlueMat:np.ndarray          = np.array([[0, 0, 1],[0, 0, 0],[0, 0, 0]])
+MeanMat2Red:np.ndarray      = np.array([[1/3, 0, 0],[1/3, 0, 0],[1/3, 0, 0]])
+MeanMat2Green:np.ndarray    = np.array([[0, 1/3, 0],[0, 1/3, 0],[0, 1/3, 0]])
+MeanMat2Blue:np.ndarray     = np.array([[0, 0, 1/3],[0, 0, 1/3],[0, 0, 1/3]])
+MeanMat2RGB:np.ndarray      = np.array([[1/3, 1/3, 1/3],[1/3, 1/3, 1/3],[1/3, 1/3, 1/3]])
+MeanMat2:np.ndarray         = np.array([[1/3, 1/3, 1/3],[0, 0, 0],[0, 0, 0]])
 
-# class Ui_MainWindow(Ui_Form):
-#     def setupUi(self, Form, gif):
-#         super().setupUi(Form)
-#         self.movie = QtGui.QMovie(gif)
-#         cap = cv2.VideoCapture(FRESU+"img(11).gif")
-#         cap.read()
-#         self.label.setMovie(self.movie)
-#         self.movie.start()
+Mat2:np.ndarray             = np.array([[0, 2],[3, 4]])/4
+M:np.ndarray                = Mat2N(K)
+#endregion Matrix
 
-def grayImg2quantize(grayImg:np.ndarray, k:int) -> np.ndarray:
-    img = grayImg.copy()
-    for i in range(len(img)):
-        for j in range(len(img[i])):
-            img[i][j]=(img[i][j]//k)*k
-    return img
-def Img2quantize(grayImg:np.ndarray, k:int) -> np.ndarray:
-    img = grayImg.copy()
-    for i in range(len(img)):
-        for j in range(len(img[i])):
-            for y in range(3):
-                img[i][j][y]=(img[i][j][y]//k)*k
-    return img
+#region IMG2
+img2gray        = lambda x: cv2.cvtColor(x, cv2.COLOR_BGR2GRAY)
+img2bgr         = lambda x: cv2.cvtColor(x, cv2.COLOR_GRAY2BGR)
+img2rgb         = lambda x: cv2.cvtColor(x, cv2.COLOR_GRAY2RGB)
+img2CRev        = lambda x: cv2.cvtColor(x, cv2.COLOR_BGR2RGB)
+img2not         = lambda x: cv2.bitwise_not(x)
+img2and         = lambda x, y: cv2.bitwise_and(x, y) 
+img2or          = lambda x, y: cv2.bitwise_or(x, y)
+img2xor         = lambda x, y: cv2.bitwise_xor(x, y)
+img2blur        = lambda x, a=7, b=7, s=0: cv2.GaussianBlur(x, (a, b), s)
+img2cont        = lambda x: cv2.Canny(x, 100, 160)
+img2DoG         = lambda x, a=((3, 3),(7, 7)), s=0., t=1.0: (1+t)*img2blur(x, a[0][0], a[0][1], s)-t*img2blur(x, a[1][0], a[1][1], s)
+img2Laplacian   = lambda x: cv2.Laplacian(x, cv2.CV_64F)
 
-I_Img2quantize = lambda x, k: np.ceil(x/k + 0.5)*k
+def img2Angle(x:np.ndarray):
+    GxImg_:np.ndarray = img2filter2D(x, a=Gx)
+    GyImg_:np.ndarray = img2filter2D(x, a=Gy)
+    contur:np.ndarray = (np.arctan(GyImg_/GxImg_)/np.pi + 1) * 0.5
+    return contur
+
+Img2quantize    = lambda x, h: (np.ceil(x/h) + 0.5)*h
+I_Img2quantize  = lambda x, k: np.ceil(x/k + 0.5)*k
+img2filter2D    = lambda x, a=kernel2: cv2.filter2D(src=x, ddepth=-1, kernel=a)
+#endregion IMG2
+
+@np.vectorize
+def GetMitemRGB(i:int, j:int, fi:int) -> float: 
+    return  S*(M[i%K][j%K] - 0.5)
+
+@np.vectorize
+def GetMitem(i:int, j:int) -> float: 
+    return  S*(M[(i)%K][(j)%K] - 0.5)
 
 def translet(image:np.ndarray, fileout:str = "out.txt", *, _a:float = asii_1):
     org_size:np.ndarray[int] = np.array([len(image), len(image[0])][::-1])
     new_size = np.array([998, int((org_size[1]*998//org_size[0])*(11/23))])
-    # print(org_size)
-    # print(new_size)
-    #600x840
-    #11х23 
+    temp:np.ndarray = cv2.resize(image, new_size)
     
-    out_img = img2gray(np.uint8(I_Img2quantize(image, len(_a))))/255*len(_a)
-    #I = lambda x: img2Angel(img2and(img2DoG(x, a=(1, 1), b=(3, 3)), img2cont(x)))
+    temp = I_Img2quantize(img2gray(temp), (len(_a)))
+    
+    contur:np.ndarray = I_Img2quantize(img2Angle(temp), 1/8)
+    contur = (2*contur-1) * 180
+    contur = np.where(contur < 0, contur + 180, contur)
 
-    contur = img2Angel(out_img)
-    out_contur = cv2.resize(contur, new_size)
+    out_contur:np.ndarray = np.abs(contur//45)
+    stroca:np.ndarray[str] = np.empty(out_contur.shape, str)
     
-    # out_contur = cv2.resize(I_Img2quantize(contur*255, 4), new_size)
-    # cv2.imwrite(FTEMP+f"out_5.png", I_Img2quantize(contur*255, 4))
-    
-    out_img = cv2.resize(out_img, new_size)
-    
-    
-    
-    with open(FTEMP+"0_"+fileout, mode="w+") as file:
-        f1 = False
-        stroca = [list(" "*len(out_img[0])) for _ in range(len(out_img))]
-        for i in range(len(out_img)):
-            for j in range(len(out_img[i])):
-                if 1/3 < (out_img[i][j] % 1) < 2/3:
-                    #0..1: 0, 0.25, 0.5, 0.75, 1
-                    stroca[i][j] = _a[int(out_img[i][j]) + int(f1)*((1, 0)[int(out_img[i][j]+1 >= len(_a))])]
-                    f1=not f1
-                elif out_img[i][j]%1 <= 1/3:  stroca[i][j] = _a[int(out_img[i][j])]
-                else: stroca[i][j] = _a[int(out_img[i][j])+1]
-                #stroca[i][j] = (stroca[i][j], "_", "/", "\\", "|")[int(out_contur[i][j])]
-                # if out_contur[i][j] < 0.125: stroca[i][j]="_"
-                # elif 0.125 <= out_contur[i][j] < 0.375: stroca[i][j] = "/"
-                # elif 0.375 <= out_contur[i][j] < 0.625: pass
-                # elif 0.625 <= out_contur[i][j] < 0.875: stroca[i][j] ="\\"
-                # elif 0.875 <= out_contur[i][j]: stroca[i][j] ="|"
-        
-        file.write("\n".join(["".join(s) for s in stroca]))  
-
     with open(FTEMP+"1_"+fileout, mode="w+") as file:
-        f1 = False
-        stroca = [list(" "*len(out_img[0])) for _ in range(len(out_img))]
-        for i in range(len(out_img)):
-            for j in range(len(out_img[i])):
-                # if 1/3 < (out_img[i][j] % 1) < 2/3:
-                #     #0..1: 0, 0.25, 0.5, 0.75, 1
-                #     stroca[i][j] = _a[int(out_img[i][j]) + int(f1)*((1, 0)[int(out_img[i][j]+1 >= len(_a))])]
-                #     f1=not f1
-                # elif out_img[i][j]%1 <= 1/3:  stroca[i][j] = _a[int(out_img[i][j])]
-                # else: stroca[i][j] = _a[int(out_img[i][j])+1]
-                #stroca[i][j] = (stroca[i][j], "_", "/", "\\", "|")[int(out_contur[i][j])]
-                if out_contur[i][j] < 0.125: stroca[i][j]="_"
-                elif 0.125 <= out_contur[i][j] < 0.375: stroca[i][j] = "/"
-                elif 0.375 <= out_contur[i][j] < 0.625: stroca[i][j] = " "
-                elif 0.625 <= out_contur[i][j] < 0.875: stroca[i][j] ="\\"
-                elif 0.875 <= out_contur[i][j]: stroca[i][j] ="|"
-        
-        file.write("\n".join(["".join(s) for s in stroca]))  
+        @np.vectorize
+        def translation2symbols(i:int, j:int):
+            x:int = out_contur[i][j]
+            return ["\\", "|", "/", "_"][int(x)] if not np.isnan(x) else " "
+        stroca = np.fromfunction(translation2symbols, out_contur.shape, dtype=int)
+        print("\n".join(["".join(s) for s in stroca]), file=file, flush=True)
     
-    with open(FTEMP+fileout, mode="w+") as file:
-        f1 = False
-        stroca = [list(" "*len(out_img[0])) for _ in range(len(out_img))]
-        for i in range(len(out_img)):
-            for j in range(len(out_img[i])):
-                if 1/3 < (out_img[i][j] % 1) < 2/3:
-                    #0..1: 0, 0.25, 0.5, 0.75, 1
-                    stroca[i][j] = _a[int(out_img[i][j]) + int(f1)*((1, 0)[int(out_img[i][j]+1 >= len(_a))])]
-                    f1=not f1
-                elif out_img[i][j]%1 <= 1/3:  stroca[i][j] = _a[int(out_img[i][j])]
-                else: stroca[i][j] = _a[int(out_img[i][j])+1]
-                #stroca[i][j] = (stroca[i][j], "_", "/", "\\", "|")[int(out_contur[i][j])]
-                if out_contur[i][j] < 0.125: stroca[i][j]="_"
-                elif 0.125 <= out_contur[i][j] < 0.375: stroca[i][j] = "/"
-                elif 0.375 <= out_contur[i][j] < 0.625: pass
-                elif 0.625 <= out_contur[i][j] < 0.875: stroca[i][j] ="\\"
-                elif 0.875 <= out_contur[i][j]: stroca[i][j] ="|"
-        
-        file.write("\n".join(["".join(s) for s in stroca]))  
+    # ImgShow(contur)
+    cv2.imwrite(FTEMP+f"_out.png", contur*255)
     
-    out_contur*=255
+    del temp, contur
     
-    return out_img, out_contur
+    temp:np.ndarray = img2gray(cv2.resize(image, new_size))/255
+    temp += np.fromfunction(GetMitem, temp.shape, dtype=int)
+    temp -= temp.min()
+    temp /= temp.max()
+
+    outImg:np.ndarray = I_Img2quantize(temp, 1/(len(_a)-1)) // (1/(len(_a)-1)) - 1
+    #// with open(FTEMP+"0_"+fileout, mode="w+") as file: print(str(set(outImg[np.logical_not(np.isnan(outImg))].tolist())), file=file, flush=True)
+
+    with open(FTEMP+"0_"+fileout, mode="w+") as file:
+        @np.vectorize
+        def translation2symbols(i:int, j:int):
+            return _a[int(outImg[i][j])]
+        stroca_ = np.fromfunction(translation2symbols, outImg.shape, dtype=int)
+        print("\n".join(["".join(s) for s in stroca_]), file=file, flush=True)
+    
+    with open(FTEMP+"2_"+fileout, mode="w+") as file:
+        @np.vectorize
+        def translation2symbols(i:int, j:int):
+            return _a[int(outImg[i][j])] if stroca[i][j] == " " else stroca[i][j]
+        stroca_ = np.fromfunction(translation2symbols, outImg.shape, dtype=int)
+        print("\n".join(["".join(s) for s in stroca_]), file=file, flush=True)
+    
+    # ImgShow(outImg)
+    return outImg, out_contur*45
 
 def getImagis() -> list[np.ndarray | list[np.ndarray]]:
     fileNames:tuple[str] = tk_filedialog.askopenfilenames(initialdir=FRESU, initialfile="img(0).png")
@@ -175,11 +157,11 @@ def getImagis() -> list[np.ndarray | list[np.ndarray]]:
     for fileName in fileNames:
         F_not_gif = fileName.split('.')[-1] in ["png", "jpg", "jpeg", "webp"]
         if F_not_gif:
-            queueImages.append(imgbgr2rgb(cv2.imread(fileName)))
+            queueImages.append(img2CRev(cv2.imread(fileName)))
         else:
             cap = cv2.VideoCapture(fileName)
             # print(int(cap.get(cv2.CAP_PROP_FRAME_COUNT)))
-            queueImages.append([imgbgr2rgb(cap.read()[1]) for _ in range(int(cap.get(cv2.CAP_PROP_FRAME_COUNT)))])
+            queueImages.append([img2CRev(cap.read()[1]) for _ in range(int(cap.get(cv2.CAP_PROP_FRAME_COUNT)))])
             cap.release()
     return queueImages
 

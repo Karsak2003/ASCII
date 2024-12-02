@@ -32,7 +32,7 @@ asii_1 = """`.-':,^=;><+!rc*z?sLTvJ7FiCfI31tluneoZ5Yxjya2ESwqkP6h9d4VpOGbUAKXHm8
 asii_2 = """$@B%8&WM#oahkbdpqwmZO0QLCJUYXzcvunxrjf1?+~ilI;:*^"',."""
 #‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾
 #__________________________________________________________________________________
-asii_3 = r" !\"#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstuvwxyz{|}~"
+#// asii_3 = r" !\"#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstuvwxyz{|}~"
 asii_3 = r" .',:`;\"i!I^lr1vjcx<>Yft*JL?T7uynozaksFVXeh3Cq2KUdp4SZbA0w5GPg9EOH6mDQNR8%&BWM#@$"
 #‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾
 
@@ -83,6 +83,12 @@ img2blur = lambda x, a=7, b=7, s=0: cv2.GaussianBlur(x, (a, b), s)
 img2cont = lambda x: cv2.Canny(x, 100, 160)
 img2DoG = lambda x, a=((3, 3),(7, 7)), s=0., t=1.0: (1+t)*img2blur(x, a[0][0], a[0][1], s)-t*img2blur(x, a[1][0], a[1][1], s)
 img2Laplacian = lambda x: cv2.Laplacian(x, cv2.CV_64F)
+
+def img2Angle(x:np.ndarray):
+    GxImg_:np.ndarray = img2filter2D(x, a=Gx)
+    GyImg_:np.ndarray = img2filter2D(x, a=Gy)
+    contur:np.ndarray = (np.arctan(GyImg_/GxImg_)/np.pi + 1) * 0.5
+    return contur
 
 Img2quantize = lambda x, h: (np.ceil(x/h) + 0.5)*h
 I_Img2quantize = lambda x, k: np.ceil(x/k + 0.5)*k
@@ -136,51 +142,56 @@ def _txt():
     print("".join(list(map((lambda x: x[0]), sorted(list(temp.items()), key=lambda x: x[1])))))
 
 def translet(image:np.ndarray, fileout:str = "out.txt", *, _a:Iterable = asii_1) -> np.ndarray:
-    
     org_size:np.ndarray[int] = np.array([len(image), len(image[0])][::-1])
     new_size = np.array([998, int((org_size[1]*998//org_size[0])*(11/23))])
     temp:np.ndarray = cv2.resize(image, new_size)
-    temp = I_Img2quantize(img2gray(temp), len(_a))
     
-    GxImg_:np.ndarray = img2filter2D(temp, a=Gx)
-    GyImg_:np.ndarray = img2filter2D(temp, a=Gy)
-    contur:np.ndarray = I_Img2quantize(np.arctan(GyImg_/GxImg_)*0.5/np.pi + 0.5, 1/8)
-    contur = ((contur-0.5)/0.5) * 180
+    temp = I_Img2quantize(img2gray(temp), (len(_a)))
+    
+    contur:np.ndarray = I_Img2quantize(img2Angle(temp), 1/8)
+    contur = (2*contur-1) * 180
     contur = np.where(contur < 0, contur + 180, contur)
-    del temp, GxImg_, GyImg_  
-    
-    with open(FTEMP+"0_"+fileout, mode="w+") as file:
-        s:str = str(set(contur[np.logical_not(np.isnan(contur))].tolist()))
-        file.write(s)
-        del s 
 
     out_contur:np.ndarray = np.abs(contur//45)
-    
-    @np.vectorize
-    def translation2symbols(i:int, j:int):
-        x:int = out_contur[i][j]
-        return ["\\", "|", "/", "_"][int(x)] if not np.isnan(x) else " "
-        
+    stroca:np.ndarray[str] = np.empty(out_contur.shape, str)
     
     with open(FTEMP+"1_"+fileout, mode="w+") as file:
+        @np.vectorize
+        def translation2symbols(i:int, j:int):
+            x:int = out_contur[i][j]
+            return ["\\", "|", "/", "_"][int(x)] if not np.isnan(x) else " "
         stroca = np.fromfunction(translation2symbols, out_contur.shape, dtype=int)
-        file.write("\n".join(["".join(s) for s in stroca]))
-        del stroca
+        print("\n".join(["".join(s) for s in stroca]), file=file, flush=True)
     
     ImgShow(contur)
     cv2.imwrite(FTEMP+f"_out.png", contur*255)
     
-    temp:np.ndarray = img2gray(image)/255
+    del temp, contur, out_contur
+    
+    temp:np.ndarray = img2gray(cv2.resize(image, new_size))/255
     temp += np.fromfunction(GetMitem, temp.shape, dtype=int)
     temp -= temp.min()
     temp /= temp.max()
-    temp = I_Img2quantize(temp, 1/(len(_a)-1))
-    
-    outImg:np.ndarray = temp
 
-    ImgShow(outImg)
+    outImg:np.ndarray = I_Img2quantize(temp, 1/(len(_a)-1)) // (1/(len(_a)-1)) - 1
+    #// with open(FTEMP+"0_"+fileout, mode="w+") as file: print(str(set(outImg[np.logical_not(np.isnan(outImg))].tolist())), file=file, flush=True)
+
+    with open(FTEMP+"0_"+fileout, mode="w+") as file:
+        @np.vectorize
+        def translation2symbols(i:int, j:int):
+            return _a[int(outImg[i][j])]
+        stroca_ = np.fromfunction(translation2symbols, outImg.shape, dtype=int)
+        print("\n".join(["".join(s) for s in stroca_]), file=file, flush=True)
     
-    return outImg * 255
+    with open(FTEMP+"2_"+fileout, mode="w+") as file:
+        @np.vectorize
+        def translation2symbols(i:int, j:int):
+            return _a[int(outImg[i][j])] if stroca[i][j] == " " else stroca[i][j]
+        stroca_ = np.fromfunction(translation2symbols, outImg.shape, dtype=int)
+        print("\n".join(["".join(s) for s in stroca_]), file=file, flush=True)
+    
+    ImgShow(outImg)
+    return outImg 
 
 def getImagis() -> np.ndarray :
     fileNames:tuple[str] = tk_filedialog.askopenfilenames(initialdir=FRESU, initialfile="img(0).png")
@@ -193,7 +204,7 @@ def getImagis() -> np.ndarray :
 @staticmethod
 def main(ars = None) -> None:
     queueImages:np.ndarray = getImagis()
-    out_img:np.ndarray =  translet(queueImages)
+    out_img:np.ndarray =  translet(queueImages, _a=asii_3)
     cv2.imwrite(FTEMP+f"out.png", out_img)
 
 
