@@ -89,6 +89,12 @@ I_Img2quantize  = lambda x, k: np.ceil(x/k + 0.5)*k
 img2filter2D    = lambda x, a=kernel2: cv2.filter2D(src=x, ddepth=-1, kernel=a)
 #endregion IMG2
 
+def DoG(image:np.ndarray, kSize:int, rSize:float, teta:float = 1., *, sigmaX_1:float=0., sigmaX_2:float=0.) -> np.ndarray:
+    assert kSize%2 and rSize > 0
+    ksize_low = np.array((kSize, kSize))
+    ksize_hight = np.int_(ksize_low*max(rSize, 1/rSize))
+    return (1 + teta)*cv2.GaussianBlur(image, ksize_low, sigmaX_1) - teta*cv2.GaussianBlur(image, ksize_hight, sigmaX_2)
+
 @np.vectorize
 def GetMitemRGB(i:int, j:int, fi:int) -> float: 
     return  S*(M[i%K][j%K] - 0.5)
@@ -98,16 +104,22 @@ def GetMitem(i:int, j:int) -> float:
     return  S*(M[(i)%K][(j)%K] - 0.5)
 
 def translet(image:np.ndarray, fileout:str = "out.txt", *, _a:float = asii_1):
-    org_size:np.ndarray[int] = np.array([len(image), len(image[0])][::-1])
-    new_size = np.array([998, int((org_size[1]*998//org_size[0])*(11/23))])
+    org_size:np.ndarray[int] = image.shape
+    # new_size:np.ndarray[int] = np.array([998, int((org_size[1]*998//org_size[0])*(11/27))])
+    new_size:np.ndarray[int] = np.array([998, int(333*(org_size[1]/org_size[0]))])
     temp:np.ndarray = cv2.resize(image, new_size)
     
-    temp = I_Img2quantize(img2gray(temp), (len(_a)))
+    x = 0.75
+    temp:np.ndarray = I_Img2quantize(img2gray(temp)/255, 1/(2**8))
     
-    contur:np.ndarray = I_Img2quantize(img2Angle(temp), 1/8)
+    temp_contur:np.ndarray = np.where(DoG(temp, 5, 7/5, 0.95) >=x, 1.0, 0.)
+    temp_contur-=temp_contur.min()
+    temp_contur/=temp_contur.max()
+    
+    contur:np.ndarray = I_Img2quantize(img2Angle(temp_contur), 1/8)
     contur = (2*contur-1) * 180
     contur = np.where(contur < 0, contur + 180, contur)
-
+    
     out_contur:np.ndarray = np.abs(contur//45)
     stroca:np.ndarray[str] = np.empty(out_contur.shape, str)
     
@@ -120,9 +132,9 @@ def translet(image:np.ndarray, fileout:str = "out.txt", *, _a:float = asii_1):
         print("\n".join(["".join(s) for s in stroca]), file=file, flush=True)
     
     # ImgShow(contur)
-    cv2.imwrite(FTEMP+f"_out.png", contur*255)
+    #//cv2.imwrite(FTEMP+f"_out.png", contur*255)
     
-    del temp, contur
+    del temp, contur, temp_contur
     
     temp:np.ndarray = img2gray(cv2.resize(image, new_size))/255
     temp += np.fromfunction(GetMitem, temp.shape, dtype=int)
@@ -195,7 +207,7 @@ def main(ars = None) -> None:
     
     out_img = []
     frames:list[Image.Image] = []
-    _a = asii_4
+    _a = asii_2[::-1]
     bar = IncrementalBar('Countdown', max = len(queueImages))
     for ind in range(len(queueImages)):
         if type(queueImages[ind]) is list:
