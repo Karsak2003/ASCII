@@ -110,11 +110,11 @@ def GetMitem(i:int, j:int) -> float:
 def translet(image:np.ndarray, fileout:str = "out.txt", *, _a:float = asii_1):
     org_size:np.ndarray[int] = image.shape
     # new_size:np.ndarray[int] = np.array([998, int((org_size[1]*998//org_size[0])*(11/27))])
-    new_size:np.ndarray[int] = np.array([998, int(333*(org_size[1]/org_size[0]))])
-    temp:np.ndarray = cv2.resize(image, new_size)
+    new_size:np.ndarray[int] = np.array([998, int(333*(org_size[1]/org_size[0])*(11/24))])
+    #//temp:np.ndarray = cv2.resize(image, new_size)
     
     x = 0.75
-    temp:np.ndarray = I_Img2quantize(img2gray(temp)/255, 1/(2**8))
+    temp:np.ndarray = I_Img2quantize(img2gray(image)/255, 1/(2**8))
     
     temp_contur:np.ndarray = np.where(DoG(temp, 5, 7/5, 0.95) >=x, 1.0, 0.)
     temp_contur-=temp_contur.min()
@@ -124,7 +124,7 @@ def translet(image:np.ndarray, fileout:str = "out.txt", *, _a:float = asii_1):
     contur = (2*contur-1) * 180
     contur = np.where(contur < 0, contur + 180, contur)
     
-    out_contur:np.ndarray = np.abs(contur//45)
+    out_contur:np.ndarray = cv2.resize(np.abs(contur//45), new_size)
     stroca:np.ndarray[str] = np.empty(out_contur.shape, str)
     
     with open(FTEMP+"1_"+fileout, mode="w+") as file:
@@ -134,6 +134,8 @@ def translet(image:np.ndarray, fileout:str = "out.txt", *, _a:float = asii_1):
             return ["\\", "|", "/", "_"][int(x)] if not np.isnan(x) else " "
         stroca = np.fromfunction(translation2symbols, out_contur.shape, dtype=int)
         print("\n".join(["".join(s) for s in stroca]), file=file, flush=True)
+        
+        
     
     # ImgShow(contur)
     #//cv2.imwrite(FTEMP+f"_out.png", contur*255)
@@ -147,7 +149,7 @@ def translet(image:np.ndarray, fileout:str = "out.txt", *, _a:float = asii_1):
 
     outImg:np.ndarray = I_Img2quantize(temp, 1/(len(_a)-1)) // (1/(len(_a)-1)) - 1
     #// with open(FTEMP+"0_"+fileout, mode="w+") as file: print(str(set(outImg[np.logical_not(np.isnan(outImg))].tolist())), file=file, flush=True)
-
+    outImg:np.ndarray = cv2.resize(outImg, new_size)
     with open(FTEMP+"0_"+fileout, mode="w+") as file:
         @np.vectorize
         def translation2symbols(i:int, j:int):

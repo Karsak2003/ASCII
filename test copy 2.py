@@ -40,7 +40,7 @@ CWD = os.getcwd()
 FRESU = CWD + "\\~resu\\"
 FTEMP = CWD + "\\~temp\\"
 K:int = 8
-S:float = 0.01
+S:float = 1.
 
 def Mat2N(n:int) -> np.ndarray:
     assert not(n%2) and (type(n) is int)
@@ -71,18 +71,18 @@ M:np.ndarray    = Mat2N(K)
 #endregion Matrix
 
 #region IMG2
-img2gray = lambda x: cv2.cvtColor(x, cv2.COLOR_BGR2GRAY)
-img2bgr  = lambda x: cv2.cvtColor(x, cv2.COLOR_GRAY2BGR)
-img2rgb  = lambda x: cv2.cvtColor(x, cv2.COLOR_GRAY2RGB)
-img2CRev = lambda x: cv2.cvtColor(x, cv2.COLOR_BGR2RGB)
-img2not  = lambda x: cv2.bitwise_not(x)
-img2and  = lambda x, y: cv2.bitwise_and(x, y) 
-img2or   = lambda x, y: cv2.bitwise_or(x, y)
-img2xor  = lambda x, y: cv2.bitwise_xor(x, y)
-img2blur = lambda x, a=7, b=7, s=0: cv2.GaussianBlur(x, (a, b), s)
-img2cont = lambda x: cv2.Canny(x, 100, 160)
-img2DoG = lambda x, a=((3, 3),(7, 7)), s=0., t=1.0: (1+t)*img2blur(x, a[0][0], a[0][1], s)-t*img2blur(x, a[1][0], a[1][1], s)
-img2Laplacian = lambda x: cv2.Laplacian(x, cv2.CV_64F)
+img2gray        = lambda x: cv2.cvtColor(x, cv2.COLOR_BGR2GRAY)
+img2bgr         = lambda x: cv2.cvtColor(x, cv2.COLOR_GRAY2BGR)
+img2rgb         = lambda x: cv2.cvtColor(x, cv2.COLOR_GRAY2RGB)
+img2CRev        = lambda x: cv2.cvtColor(x, cv2.COLOR_BGR2RGB)
+img2not         = lambda x: cv2.bitwise_not(x)
+img2and         = lambda x, y: cv2.bitwise_and(x, y) 
+img2or          = lambda x, y: cv2.bitwise_or(x, y)
+img2xor         = lambda x, y: cv2.bitwise_xor(x, y)
+img2blur        = lambda x, a=7, b=7, s=0: cv2.GaussianBlur(x, (a, b), s)
+img2cont        = lambda x: cv2.Canny(x, 100, 160)
+img2DoG         = lambda x, a=((3, 3),(7, 7)), s=0., t=1.0: (1+t)*img2blur(x, a[0][0], a[0][1], s)-t*img2blur(x, a[1][0], a[1][1], s)
+img2Laplacian   = lambda x: cv2.Laplacian(x, cv2.CV_64F)
 
 def img2Angle(x:np.ndarray):
     GxImg_:np.ndarray = img2filter2D(x, a=Gx)
@@ -90,10 +90,9 @@ def img2Angle(x:np.ndarray):
     contur:np.ndarray = (np.arctan(GyImg_/GxImg_)/np.pi + 1) * 0.5
     return contur
 
-
-Img2quantize = lambda x, h: (np.ceil(x/h) + 0.5)*h
-I_Img2quantize = lambda x, k: np.ceil(x/k + 0.5)*k
-img2filter2D = lambda x, a=kernel2: cv2.filter2D(src=x, ddepth=-1, kernel=a)
+Img2quantize    = lambda x, h: (np.ceil(x/h) + 0.5)*h
+I_Img2quantize  = lambda x, k: np.ceil(x/k + 0.5)*k
+img2filter2D    = lambda x, a=kernel2: cv2.filter2D(src=x, ddepth=-1, kernel=a)
 #endregion IMG2
 
 Sigmoid = lambda x: 1/(1 + np.e**(-x))
@@ -103,7 +102,6 @@ def GetMitemRGB(i:int, j:int, fi:int) -> float:
     return  S*(M[i%K][j%K] - 0.5)
 @np.vectorize
 def GetMitem(i:int, j:int) -> float: 
-
     return  S*(M[(i)%K][(j)%K] - 0.5)
 
 """
@@ -151,22 +149,10 @@ def __txt():
     
     print("".join(list(map((lambda x: x[0]), sorted(list(temp.items()), key=lambda x: x[1])))))
 
-def translet(image:np.ndarray, fileout:str = "out.txt", *, _a:Iterable = asii_1) -> np.ndarray:
-    x = 0.75
+def translet(image:np.ndarray, fileout:str = "out.txt", *, _a:Iterable = asii_1) -> np.ndarray:    
     
-    #*threshold = lambda x, a, fi = np.pi/2: np.where(x>=a, 1., 1+np.tanh(fi*(x-a)))
-    
-    temp:np.ndarray = I_Img2quantize(img2gray(image)/255, 1/(2**8))   
-
-    #*outImg:np.ndarray = threshold(DoG(temp, 5, 7/5, 0.85), x)
-    outImg:np.ndarray = np.where(DoG(temp, 5, 7/5, 0.95) >=x, 1.0, 0.)
-    outImg-=outImg.min()
-    outImg/=outImg.max()
-    contur:np.ndarray = I_Img2quantize(img2Angle(outImg), 1/8)
-    ImgShow(temp)  
+    outImg:np.ndarray = np.abs(image - image.mean()) / 255
     ImgShow(outImg)
-    ImgShow(contur)
-    cv2.imwrite(FTEMP+f"_out.png", contur*255)
     return outImg * 255
     
 def getImagis() -> np.ndarray :
@@ -179,8 +165,8 @@ def getImagis() -> np.ndarray :
 
 @staticmethod
 def main(ars = None) -> None:
-    queueImages:np.ndarray = getImagis()
-    out_img:np.ndarray =  translet(queueImages, _a=asii_3)
+    queueImages:np.ndarray  = getImagis()
+    out_img:np.ndarray      =  translet(queueImages, _a=asii_3)
     cv2.imwrite(FTEMP+f"out.png", out_img)
 
 if __name__ == "__main__": 
