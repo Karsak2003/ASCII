@@ -90,6 +90,27 @@ def img2Angle(x:np.ndarray):
     contur:np.ndarray = (np.arctan(GyImg_/GxImg_)/np.pi + 1) * 0.5
     return contur
 
+def img2ConsoleImg(image, _a, w, h):
+    tempImg:np.ndarray = cv2.resize(image, (w, h))
+    
+    tempImgGray:np.ndarray = I_Img2quantize(img2gray(tempImg)/255, 1/(len(_a)-1))
+    temp_f = np.vectorize(lambda x, y: _a[int(tempImgGray[x][y]//(1/(len(_a)-1))-1)])
+    ss = np.fromfunction(temp_f, tempImgGray.shape, dtype=int)
+    del tempImgGray, temp_f
+    
+    tempImg_:np.ndarray = np.round((tempImg)/255)
+    _w, _h, _ = tempImg_.shape
+    temp_f = np.vectorize(lambda x, y: int("".join(list(map(str, list(map(int,tempImg_[x-1][y-1]))))), 2))
+    ss_ = np.fromfunction(temp_f, (_w, _h), dtype=int)
+    del tempImg_, temp_f, 
+    
+    temp_f = np.vectorize(lambda x, y: f"\033[{30+ss_[x][y]}m"+ ss[x][y] + "\033[0m")
+    strings:np.ndarray = np.fromfunction(temp_f, (_w, _h), dtype=int)
+    
+    del ss, ss_, _w, _h, _
+    return strings
+
+
 Img2quantize    = lambda x, h: (np.ceil(x/h) + 0.5)*h
 I_Img2quantize  = lambda x, k: np.ceil(x/k + 0.5)*k
 img2filter2D    = lambda x, a=kernel2: cv2.filter2D(src=x, ddepth=-1, kernel=a)
@@ -136,6 +157,7 @@ def ImgShow(image) -> None:
     axs.imshow(image)
     plt.show()
 
+
 def __txt():
     temp = dict()
     
@@ -149,11 +171,13 @@ def __txt():
     
     print("".join(list(map((lambda x: x[0]), sorted(list(temp.items()), key=lambda x: x[1])))))
 
-def translet(image:np.ndarray, fileout:str = "out.txt", *, _a:Iterable = asii_1) -> np.ndarray:    
+def translet(image:np.ndarray, fileout:str = "out.txt", *, _a:Iterable = asii_1) -> None:    
+    w, h = tuple(os.get_terminal_size())
+    strings = img2ConsoleImg(image, _a, w, h)
+    return "\n".join(["".join(s) for s in strings.tolist()])
     
-    outImg:np.ndarray = np.abs(image - image.mean()) / 255
-    ImgShow(outImg)
-    return outImg * 255
+
+
     
 def getImagis() -> np.ndarray :
     fileNames:tuple[str] = tk_filedialog.askopenfilenames(initialdir=FRESU, initialfile="img(0).png")
@@ -163,16 +187,76 @@ def getImagis() -> np.ndarray :
     queueImages:np.ndarray = cv2.imread(fileNames[-1])
     return queueImages  
 
+def getImagis4test() -> list[np.ndarray | list[np.ndarray]]:
+    fileNames:tuple[str] = tk_filedialog.askopenfilenames(initialdir=FRESU, initialfile="img(0).png")
+    if not len(fileNames):sys.exit(0)
+    F_not_gif:bool = False
+    queueImages:list[np.ndarray | list[np.ndarray]] = []
+    for fileName in fileNames:
+        F_not_gif = fileName.split('.')[-1] in ["png", "jpg", "jpeg", "webp"]
+        if F_not_gif:
+            queueImages.append(img2CRev(cv2.imread(fileName)))
+        else:
+            cap = cv2.VideoCapture(fileName)
+            # print(int(cap.get(cv2.CAP_PROP_FRAME_COUNT)))
+            queueImages.append([img2CRev(cap.read()[1]) for _ in range(int(cap.get(cv2.CAP_PROP_FRAME_COUNT)))])
+            cap.release()
+    return queueImages
+
+
+def packing2GIF(lenFrames:int, frames:list[Image.Image] = [], fileout:str="out") ->  None:
+    for i in range(lenFrames):
+        with Image.open(fileout+f"({i}).png") as frame: 
+            frames.append(frame.copy())
+        os.remove(fileout+f"({i}).png")
+    frames[0].save(
+                fileout + '.gif',
+                save_all=True,
+                append_images=frames[1:],  # Срез который игнорирует первый кадр.
+                optimize=True,
+                duration=100,
+                loop=0
+            )
+    frames.clear()
+
+
 @staticmethod
 def main(ars = None) -> None:
     queueImages:np.ndarray  = getImagis()
     out_img:np.ndarray      =  translet(queueImages, _a=asii_3)
     cv2.imwrite(FTEMP+f"out.png", out_img)
 
+@staticmethod
+def main4test(ars = None) -> None:
+    queueImages:list[np.ndarray | list[np.ndarray]] = getImagis4test()
+    _a = asii_3
+    for ind in range(len(queueImages)):
+        if type(queueImages[ind]) is list:
+            images:list = queueImages[ind]
+            ss:list[str] = []
+            for i in range(len(images)):
+                ss.append(translet(images[i], fileout=f"out({ind})({i}).txt", _a=_a))
+            
+            i_counter:int = 0
+            while True:
+                i = i_counter % len(images)
+                print(ss[i])
+                if (i_counter // len(images))//10:
+                    input("Нажмите 'ENTER' для продолжения...")
+                    print("\033[F\033[J", end="")
+                    break
+                i_counter+=1
+                time.sleep(0.25)
+                print("\033[H\033[J", end="")
+        else:translet(queueImages[ind], fileout=f"out({ind}).txt", _a=_a)
+
+
 if __name__ == "__main__": 
-    main()
+    input("#START")
+    print("\033[H\033[J", end="")
+    main4test()
     #input("Pleas press 'ENTER' to continue...")
-    print("#END")
+    input("#END")
     
 SGA:dict[str, str] = {
 "a": "ᔑ",
