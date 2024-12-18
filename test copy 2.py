@@ -248,7 +248,8 @@ def main4test(ars = None) -> None:
                 i_counter+=1
                 time.sleep(0.25)
                 print("\033[H\033[J", end="")
-        else:translet(queueImages[ind], fileout=f"out({ind}).txt", _a=_a)
+        else:
+            input(translet(queueImages[ind], fileout=f"out({ind}).txt", _a=_a))
 
 
 if __name__ == "__main__": 
