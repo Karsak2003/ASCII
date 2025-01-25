@@ -104,12 +104,45 @@ def img2ConsoleImg(image, _a, w, h):
     ss_ = np.fromfunction(temp_f, (_w, _h), dtype=int)
     del tempImg_, temp_f, 
     
-    temp_f = np.vectorize(lambda x, y: f"\033[{30+ss_[x][y]}m"+ ss[x][y] + "\033[0m")
+    I_ = lambda R, G, B: "\033[38;2;" + ";".join((R, G, B)) + "m"
+    _Cleaner:str = "\033[0m"
+    
+    temp_f = np.vectorize(lambda x, y: f"\033[{30+ss_[x][y]}m"+ ss[x][y] + _Cleaner)
     strings:np.ndarray = np.fromfunction(temp_f, (_w, _h), dtype=int)
     
     del ss, ss_, _w, _h, _
     return strings
 
+def _img2ConsoleImg(image, _a, w, h):
+    tempImg:np.ndarray = cv2.resize(image, (w, h))
+    _Cleaner:str = "\033[0m"
+    
+    tempImgGray:np.ndarray = I_Img2quantize(img2gray(tempImg)/255, 1/(len(_a)-1))
+    temp_f = np.vectorize(lambda x, y: _a[int(tempImgGray[x][y]//(1/(len(_a)-1))-1)])
+    ss = np.fromfunction(temp_f, tempImgGray.shape, dtype=int)
+    del tempImgGray, temp_f
+    
+    tempImg_:np.ndarray = I_Img2quantize(tempImg/255, 1/(len(_a)-1)) 
+    
+    tempImg_ -= tempImg_.min()
+    tempImg_ /= tempImg_.max()
+    tempImg_ *= 255
+        
+    _w, _h, _ = tempImg_.shape
+
+
+    temp_f = np.vectorize(lambda x, y: (lambda R, G, B: "\033[38;2;" + ";".join((R, G, B)) + "m")(
+        str(int(tempImg_[x][y][0])),
+        str(int(tempImg_[x][y][1])),
+        str(int(tempImg_[x][y][2]))))
+    ss_ = np.fromfunction(temp_f, (_w, _h), dtype=int)
+    del tempImg_, temp_f, 
+    
+    temp_f = np.vectorize(lambda x, y: ss_[x][y] + ss[x][y] + _Cleaner)
+    strings:np.ndarray = np.fromfunction(temp_f, (_w, _h), dtype=int)
+    
+    del ss, ss_, _w, _h, _
+    return strings
 
 Img2quantize    = lambda x, h: (np.ceil(x/h) + 0.5)*h
 I_Img2quantize  = lambda x, k: np.ceil(x/k + 0.5)*k
@@ -143,6 +176,31 @@ def _where(x, x2T, x2F) -> Any:
 @_where(0.01, 1, 0)
 """
 
+def SelectContour(image:np.ndarray, size, *, x = 0.75) -> tuple[str, np.ndarray]:
+    new_size:np.ndarray[int] = np.array((size[0], size[1]))
+    
+    temp:np.ndarray = I_Img2quantize(img2gray(image)/255, 1/(2**8))
+    
+    temp_contur:np.ndarray = np.where(DoG(temp, 5, 7/5, 0.95) >=x, 1.0, 0.)
+    temp_contur-=temp_contur.min()
+    temp_contur/=temp_contur.max()
+    
+    contur:np.ndarray = I_Img2quantize(img2Angle(temp_contur), 1/8)
+    contur:np.ndarray = (2*contur-1) * 180
+    contur:np.ndarray = np.where(contur < 0, contur + 180, contur)
+    
+    out_contur:np.ndarray = cv2.resize(np.abs(contur//45), new_size)
+    stroca:np.ndarray[str] = np.empty(out_contur.shape, str)
+
+    del contur, temp_contur, temp, x
+    
+    @np.vectorize
+    def translation2symbols(i:int, j:int):
+        x:int = out_contur[i][j]
+        return ["\\", "|", "/", "_"][int(x)] if not np.isnan(x) else " "
+    stroca = np.fromfunction(translation2symbols, out_contur.shape, dtype=int)
+    return "\n".join(["".join(s) for s in stroca]), out_contur
+
 def DoG(image:np.ndarray, kSize:int, rSize:float, teta:float = 1., *, sigmaX_1:float=0., sigmaX_2:float=0.) -> np.ndarray:
     assert kSize%2 and rSize > 0
     ksize_low = np.array((kSize, kSize))
@@ -171,9 +229,10 @@ def __txt():
     
     print("".join(list(map((lambda x: x[0]), sorted(list(temp.items()), key=lambda x: x[1])))))
 
-def translet(image:np.ndarray, fileout:str = "out.txt", *, _a:Iterable = asii_1) -> None:    
-    w, h = tuple(os.get_terminal_size())
-    strings = img2ConsoleImg(image, _a, w, h)
+def translet(image:np.ndarray, fileout:str = "out.txt", *, _a:Iterable = asii_1, wh = tuple(os.get_terminal_size())) -> None:    
+    w, h = wh
+    # strings = img2ConsoleImg(image, _a, w, h)
+    strings = _img2ConsoleImg(image, _a, w, h)
     return "\n".join(["".join(s) for s in strings.tolist()])
     
 
@@ -189,7 +248,8 @@ def getImagis() -> np.ndarray :
 
 def getImagis4test() -> list[np.ndarray | list[np.ndarray]]:
     fileNames:tuple[str] = tk_filedialog.askopenfilenames(initialdir=FRESU, initialfile="img(0).png")
-    if not len(fileNames):sys.exit(0)
+    while not len(fileNames):
+        fileNames:tuple[str] = tk_filedialog.askopenfilenames(initialdir=FRESU, initialfile="img(0).png")
     F_not_gif:bool = False
     queueImages:list[np.ndarray | list[np.ndarray]] = []
     for fileName in fileNames:
@@ -201,7 +261,7 @@ def getImagis4test() -> list[np.ndarray | list[np.ndarray]]:
             # print(int(cap.get(cv2.CAP_PROP_FRAME_COUNT)))
             queueImages.append([img2CRev(cap.read()[1]) for _ in range(int(cap.get(cv2.CAP_PROP_FRAME_COUNT)))])
             cap.release()
-    return queueImages
+    return queueImages, fileNames
 
 
 def packing2GIF(lenFrames:int, frames:list[Image.Image] = [], fileout:str="out") ->  None:
@@ -219,6 +279,16 @@ def packing2GIF(lenFrames:int, frames:list[Image.Image] = [], fileout:str="out")
             )
     frames.clear()
 
+def link(uri, label=None):
+    if label is None: 
+        label = uri
+    parameters = ''
+
+    # OSC 8 ; params ; URI ST <name> OSC 8 ;; ST 
+    escape_mask = '\033]8;{};{}\033\\{}\033]8;;\033\\'
+
+    return escape_mask.format(parameters, uri, label)
+
 
 @staticmethod
 def main(ars = None) -> None:
@@ -228,28 +298,55 @@ def main(ars = None) -> None:
 
 @staticmethod
 def main4test(ars = None) -> None:
-    queueImages:list[np.ndarray | list[np.ndarray]] = getImagis4test()
+    qi, fn = getImagis4test()
+    
+    queueImages:list[np.ndarray | list[np.ndarray]] = qi
+    fileNames:list[str] = list(fn)
+    
+    del  qi, fn
+    
     _a = asii_3
+    wh = tuple(os.get_terminal_size())
+    vFPS:int = 1/24 
+    
+    input("Получение данных завершино.\nНажмите 'ENTER' для продолжения...")
+    
     for ind in range(len(queueImages)):
+        # _ts_orign:str = f"исходник: <a href=\"{fileNames[ind]}\">{fileNames[ind].split("/")[-1]}</a>"
+        _ts_orign:str = f"исходник: {link(fileNames[ind], fileNames[ind].split("/")[-1])}"
         if type(queueImages[ind]) is list:
             images:list = queueImages[ind]
             ss:list[str] = []
+            bar = IncrementalBar('Countdown', max = len(images))
             for i in range(len(images)):
-                ss.append(translet(images[i], fileout=f"out({ind})({i}).txt", _a=_a))
+                bar.next()
+                # ss.append(translet(images[i], fileout=f"out({ind})({i}).txt", _a=_a, wh = wh))
+                ss.append(SelectContour(images[i], size=wh)[0])
+            bar.finish()
+            del bar
+            print("\033[H\033[J", end="")
             
             i_counter:int = 0
             while True:
-                i = i_counter % len(images)
-                print(ss[i])
-                if (i_counter // len(images))//10:
+                i:int = i_counter % len(images)
+                temp_ts:tuple = (i_counter, i_counter // len(images), (5 / (vFPS * len(images))))
+                _ts:str = f"#{temp_ts[0]} цик; \t {i+1}/{len(images)} кадр; \t {temp_ts[1]}//{temp_ts[2]} = {temp_ts[1]//temp_ts[2]}"
+                
+                print(_ts_orign + "\n" + _ts + "\n" + ss[i], flush=True)
+                
+                if (i_counter // len(images)) // (5 / (vFPS * len(images))):
                     input("Нажмите 'ENTER' для продолжения...")
-                    print("\033[F\033[J", end="")
+                    print("\033[H\033[J", end="")
                     break
                 i_counter+=1
-                time.sleep(0.25)
-                print("\033[H\033[J", end="")
+                time.sleep(vFPS)
+                print("\033[H\033[3J", end="", flush=True)
         else:
-            input(translet(queueImages[ind], fileout=f"out({ind}).txt", _a=_a))
+            print(_ts_orign)
+            print(translet(queueImages[ind], fileout=f"out({ind}).txt", _a=_a), flush=True)
+            input("test")
+            # time.sleep(1)
+            print("\033[H\033[J", end="", flush=True)
 
 
 if __name__ == "__main__": 
