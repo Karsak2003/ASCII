@@ -320,8 +320,8 @@ def main4test(ars = None) -> None:
             bar = IncrementalBar('Countdown', max = len(images))
             for i in range(len(images)):
                 bar.next()
-                # ss.append(translet(images[i], fileout=f"out({ind})({i}).txt", _a=_a, wh = wh))
-                ss.append(SelectContour(images[i], size=wh)[0])
+                ss.append(translet(images[i], fileout=f"out({ind})({i}).txt", _a=_a, wh = wh))
+                # ss.append(SelectContour(images[i], size=wh)[0])
             bar.finish()
             del bar
             print("\033[H\033[J", end="")
