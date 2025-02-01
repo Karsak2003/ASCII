@@ -64,5 +64,6 @@
             "bold": false,
             "italic": false
         }
-    ]
+    ],
+    "vt100.decorate-includes": "vt100|python|shellscript"
 }

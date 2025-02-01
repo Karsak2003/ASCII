@@ -2,7 +2,7 @@
 #region IMPORT
 import math 
 import sys
-from typing import Any, Iterable, Sequence
+from typing import Any, Generator, Iterable, Sequence
 import cv2
 import cv2.data
 import numpy as np  
@@ -34,6 +34,7 @@ asii_2 = """$@B%8&WM#oahkbdpqwmZO0QLCJUYXzcvunxrjf1?+~ilI;:*^"',."""
 #__________________________________________________________________________________
 #// asii_3 = r" !\"#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstuvwxyz{|}~"
 asii_3 = r" .',:`;\"i!I^lr1vjcx<>Yft*JL?T7uynozaksFVXeh3Cq2KUdp4SZbA0w5GPg9EOH6mDQNR8%&BWM#@$"
+asii_3v = r" .',:`;\"i!I^lrvjcx<>Yft*JL?TuynozaksFVXehCqKUdpSZbAwGPgEOHmDQNR%&BWM#@$"
 #‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾
 
 CWD = os.getcwd()
@@ -113,7 +114,8 @@ def img2ConsoleImg(image, _a, w, h):
     del ss, ss_, _w, _h, _
     return strings
 
-def _img2ConsoleImg(image, _a, w, h):
+def _img2ConsoleImg(image:np.ndarray, _a:str, w:int, h:int):
+
     tempImg:np.ndarray = cv2.resize(image, (w, h))
     _Cleaner:str = "\033[0m"
     
@@ -123,22 +125,28 @@ def _img2ConsoleImg(image, _a, w, h):
     del tempImgGray, temp_f
     
     tempImg_:np.ndarray = I_Img2quantize(tempImg/255, 1/(len(_a)-1)) 
-    
+
     tempImg_ -= tempImg_.min()
     tempImg_ /= tempImg_.max()
-    tempImg_ *= 255
-        
-    _w, _h, _ = tempImg_.shape
+    tempImg_ = tempImg_ * 255
+    
+    print(type(tempImg_[0][0]))
+    tempImg_ = np.astype(tempImg_, int)
+    print(type(tempImg_[0][0]))
 
 
+    
+    
+    _w, _h, _ = tempImg_.shape    
+    
     temp_f = np.vectorize(lambda x, y: (lambda R, G, B: "\033[38;2;" + ";".join((R, G, B)) + "m")(
-        str(int(tempImg_[x][y][0])),
-        str(int(tempImg_[x][y][1])),
-        str(int(tempImg_[x][y][2]))))
+        str(tempImg_[x][y][0]),
+        str(tempImg_[x][y][1]),
+        str(tempImg_[x][y][2])))
     ss_ = np.fromfunction(temp_f, (_w, _h), dtype=int)
     del tempImg_, temp_f, 
     
-    temp_f = np.vectorize(lambda x, y: ss_[x][y] + ss[x][y] + _Cleaner)
+    temp_f = np.vectorize(lambda x, y: ss_[x][y] + ss[x][y] + ("", _Cleaner)[y >= (len(ss[x])-1)])
     strings:np.ndarray = np.fromfunction(temp_f, (_w, _h), dtype=int)
     
     del ss, ss_, _w, _h, _
@@ -238,7 +246,7 @@ def translet(image:np.ndarray, fileout:str = "out.txt", *, _a:Iterable = asii_1,
 
 
     
-def getImagis() -> np.ndarray :
+def _getImagis() -> np.ndarray :
     fileNames:tuple[str] = tk_filedialog.askopenfilenames(initialdir=FRESU, initialfile="img(0).png")
     if not len(fileNames):sys.exit(0)
     assert fileNames[-1].split('.')[-1] in ["png", "jpg", "jpeg", "webp"]
@@ -263,6 +271,32 @@ def getImagis4test() -> list[np.ndarray | list[np.ndarray]]:
             cap.release()
     return queueImages, fileNames
 
+def getFileNames() -> list[str]:
+    fileNames:tuple[str] = tk_filedialog.askopenfilenames(initialdir=FRESU, initialfile="img(0).png")
+    while not len(fileNames):
+        sel:str = input("Небыл(и) выбран(ы) файл(ы)! \nЕсли хотите вернутся к выбору файлов введите 'yes'[Y/n]: ").lower()
+        if sel in "no0нет":
+            sys.exit(0)
+        fileNames:tuple[str] = tk_filedialog.askopenfilenames(initialdir=FRESU, initialfile="img(0).png")
+    return fileNames
+
+def getImagis(fileNames:list[str]):
+    
+    def sel():
+        for fileName in fileNames:
+            ind:int = fileName.index(fileName)
+            if fileName.split('.')[-1] in ["png", "jpg", "jpeg", "webp"]:
+                t:np.ndarray = img2CRev(cv2.imread(fileName))
+                yield (ind, (t, None))
+            else:
+                cap:cv2.VideoCapture = cv2.VideoCapture(fileName)
+                cap_len:int = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+                cap_FPS:float = (cap.get(cv2.CAP_PROP_FPS))
+                result:list[np.ndarray] = [img2CRev(cap.read()[1]) for _ in range(cap_len)]
+                t:tuple = (result, cap_FPS)
+                cap.release()
+                yield (ind, t)
+    return sel
 
 def packing2GIF(lenFrames:int, frames:list[Image.Image] = [], fileout:str="out") ->  None:
     for i in range(lenFrames):
@@ -292,59 +326,129 @@ def link(uri, label=None):
 
 @staticmethod
 def main(ars = None) -> None:
-    queueImages:np.ndarray  = getImagis()
-    out_img:np.ndarray      =  translet(queueImages, _a=asii_3)
+    queueImages:np.ndarray  = _getImagis()
+    out_img:np.ndarray      = translet(queueImages, _a=asii_3)
     cv2.imwrite(FTEMP+f"out.png", out_img)
 
 @staticmethod
 def main4test(ars = None) -> None:
     qi, fn = getImagis4test()
     
-    queueImages:list[np.ndarray | list[np.ndarray]] = qi
     fileNames:list[str] = list(fn)
+    queueImages:list[np.ndarray | list[np.ndarray]] = qi
     
     del  qi, fn
     
-    _a = asii_3
+    _a = asii_3v
     wh = tuple(os.get_terminal_size())
-    vFPS:int = 1/24 
+    dTFrame:int = 1/60#second
+    duration:int = 5
     
     input("Получение данных завершино.\nНажмите 'ENTER' для продолжения...")
     
     for ind in range(len(queueImages)):
         # _ts_orign:str = f"исходник: <a href=\"{fileNames[ind]}\">{fileNames[ind].split("/")[-1]}</a>"
-        _ts_orign:str = f"исходник: {link(fileNames[ind], fileNames[ind].split("/")[-1])}"
+        _ts_orign:str = f"исходник: {link(fileNames[ind], fileNames[ind].split("/")[-1])};"
         if type(queueImages[ind]) is list:
+            
             images:list = queueImages[ind]
+            lenght_ing:int = len(images) 
             ss:list[str] = []
-            bar = IncrementalBar('Countdown', max = len(images))
-            for i in range(len(images)):
+            dTFrame:int = max(dTFrame, 2/(lenght_ing*3))
+            
+            bar = IncrementalBar('Countdown', max = lenght_ing)
+            for i in range(lenght_ing):
                 bar.next()
                 ss.append(translet(images[i], fileout=f"out({ind})({i}).txt", _a=_a, wh = wh))
                 # ss.append(SelectContour(images[i], size=wh)[0])
             bar.finish()
             del bar
+            
             print("\033[H\033[J", end="")
             
             i_counter:int = 0
             while True:
-                i:int = i_counter % len(images)
-                temp_ts:tuple = (i_counter, i_counter // len(images), (5 / (vFPS * len(images))))
-                _ts:str = f"#{temp_ts[0]} цик; \t {i+1}/{len(images)} кадр; \t {temp_ts[1]}//{temp_ts[2]} = {temp_ts[1]//temp_ts[2]}"
+                i:int = i_counter % lenght_ing
+                temp_ts:tuple = (i_counter, i_counter // lenght_ing, (duration / (dTFrame * lenght_ing)))
+                _ts:str = f"#{temp_ts[0]} цик; \t {i+1}/{lenght_ing} кадр; \t {temp_ts[1]}//{temp_ts[2]} = {temp_ts[1]//temp_ts[2]}"
                 
-                print(_ts_orign + "\n" + _ts + "\n" + ss[i], flush=True)
+                print(_ts_orign + "\t" + _ts + "\n" + ss[i], flush=True)
                 
-                if (i_counter // len(images)) // (5 / (vFPS * len(images))):
+                if temp_ts[1] >= temp_ts[2]:                    
                     input("Нажмите 'ENTER' для продолжения...")
                     print("\033[H\033[J", end="")
                     break
                 i_counter+=1
-                time.sleep(vFPS)
+                time.sleep(dTFrame)
                 print("\033[H\033[3J", end="", flush=True)
         else:
             print(_ts_orign)
             print(translet(queueImages[ind], fileout=f"out({ind}).txt", _a=_a), flush=True)
-            input("test")
+            input("Нажмите 'ENTER' для продолжения...")
+            # time.sleep(1)
+            print("\033[H\033[J", end="", flush=True)
+
+
+@staticmethod
+def Main(ars = None) -> None:
+    
+    fileNames:list[str] = getFileNames()
+    gen_queueImages:Generator[tuple[int, tuple[np.ndarray, None]], tuple[int, tuple[list[np.ndarray], float]]] = getImagis(fileNames)()
+
+    _a = asii_3v
+    wh = tuple(os.get_terminal_size())
+    dTFrame:int = 1/60#second
+    duration:int = 5
+    
+    input("Получение данных завершино.\nНажмите 'ENTER' для продолжения...")
+    # print(f"\033[8;{wh[1]+5};{wh[0]+5}")
+    
+    
+    for ind, image in gen_queueImages:
+        # _ts_orign:str = f"исходник: <a href=\"{fileNames[ind]}\">{fileNames[ind].split("/")[-1]}</a>"
+        _ts_orign:str = f"исходник: {link(fileNames[ind], fileNames[ind].split("/")[-1])};"
+        img, fps = image
+        if type(img) is list:
+            
+            images:list = img
+            lenght_ing:int = len(images) 
+            ss:list[str] = []
+            dTFrame:int = 1/fps
+            
+            bar = IncrementalBar('Countdown', max = lenght_ing)
+            for i in range(lenght_ing):
+                bar.next()
+                ss.append(translet(images[i], fileout=f"out({ind})({i}).txt", _a=_a, wh = wh))
+                # ss.append(SelectContour(images[i], size=wh)[0])
+            bar.finish()
+            del bar
+            
+            print("\033[H\033[J", end="")
+            
+            i_counter:int = 0
+            while True:
+                i:int = i_counter % lenght_ing
+                temp_ts:tuple = (i_counter, i_counter // lenght_ing, (duration / (dTFrame * lenght_ing)))
+                _ts:str = f"#{temp_ts[0]} цик; \t {i+1}/{lenght_ing} кадр; \t {temp_ts[1]}//{temp_ts[2]} = {temp_ts[1]//temp_ts[2]}"
+                
+                print(_ts_orign + "\n"+ f"FPS:{1/dTFrame}\t" + _ts + "\n" + ss[i], flush=True)
+                
+                with open(FTEMP+"2_"+f"test({ind})({i}).txt", mode="w+") as file:
+                    file.write(_ts_orign + "\n"+ f"FPS:{1/dTFrame}\t" + _ts + "\n" + ss[i])
+                    
+                                
+                if temp_ts[1] >= temp_ts[2]:                    
+                    input("Нажмите 'ENTER' для продолжения...")
+                    print("\033[H\033[J", end="")
+                    break
+                i_counter+=1
+                time.sleep(dTFrame)
+                print("\033[H\033[3J", end="", flush=True)
+        else:
+            print("\033[H\033[J", end="")
+            print(_ts_orign)
+            print(translet(img, fileout=f"out({ind}).txt", _a=_a), flush=True)
+            input("Нажмите 'ENTER' для продолжения...")
             # time.sleep(1)
             print("\033[H\033[J", end="", flush=True)
 
@@ -352,10 +456,12 @@ def main4test(ars = None) -> None:
 if __name__ == "__main__": 
     input("#START")
     print("\033[H\033[J", end="")
-    main4test()
+    Main()
     #input("Pleas press 'ENTER' to continue...")
     input("#END")
-    
+
+
+
 SGA:dict[str, str] = {
 "a": "ᔑ",
 "b": "ʖ",
