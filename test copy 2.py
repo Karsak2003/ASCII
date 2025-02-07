@@ -104,33 +104,9 @@ def img2Angle(x:np.ndarray):
     contur:np.ndarray = (np.arctan(GyImg_/GxImg_)/np.pi + 1) * 0.5
     return contur
 
-def img2ConsoleImg(image, _a, w, h):
-    tempImg:np.ndarray = cv2.resize(image, (w, h))
-    
-    tempImgGray:np.ndarray = I_Img2quantize(img2gray(tempImg)/255, 1/(len(_a)-1))
-    temp_f = np.vectorize(lambda x, y: _a[int(tempImgGray[x][y]//(1/(len(_a)-1))-1)])
-    ss = np.fromfunction(temp_f, tempImgGray.shape, dtype=int)
-    del tempImgGray, temp_f
-    
-    tempImg_:np.ndarray = np.round((tempImg)/255)
-    _w, _h, _ = tempImg_.shape
-    temp_f = np.vectorize(lambda x, y: int("".join(list(map(str, list(map(int,tempImg_[x-1][y-1]))))), 2))
-    ss_ = np.fromfunction(temp_f, (_w, _h), dtype=int)
-    del tempImg_, temp_f, 
-    
-    I_ = lambda R, G, B: "\033[38;2;" + ";".join((R, G, B)) + "m"
-    _Cleaner:str = "\033[0m"
-    
-    temp_f = np.vectorize(lambda x, y: f"\033[{30+ss_[x][y]}m"+ ss[x][y] + _Cleaner)
-    strings:np.ndarray = np.fromfunction(temp_f, (_w, _h), dtype=int)
-    
-    del ss, ss_, _w, _h, _
-    return strings
-
-def _img2ConsoleImg(image:np.ndarray, _a:str, w:int, h:int):
+def img2ConsoleImg(image:np.ndarray, _a:str, w:int, h:int):
     global ESCCLEANER
     tempImg:np.ndarray = cv2.resize(image, (w, h))
-    
     
     tempImgGray:np.ndarray = I_Img2quantize(img2gray(tempImg)/255, 1/(len(_a)-1))
     temp_f = np.vectorize(lambda x, y: _a[int(tempImgGray[x][y]//(1/(len(_a)-1))-1)])
@@ -153,12 +129,13 @@ def _img2ConsoleImg(image:np.ndarray, _a:str, w:int, h:int):
         g:str = str(tempImg_[x][y][1])
         b:str = str(tempImg_[x][y][2]) 
         return ";".join((r, g, b))
+    
     t:np.ndarray = np.fromfunction(f, (_w, _h), dtype=int)
     _t:list = []
-    for i in t.tolist():
-        _t += i
-    
+    for i in t.tolist:_t += i
     palette:list[str] = list(set(_t))
+    
+    del t, _t, f
     
     @np.vectorize
     def f(x:int, y:int):
@@ -168,22 +145,19 @@ def _img2ConsoleImg(image:np.ndarray, _a:str, w:int, h:int):
         return palette.index(";".join((r, g, b)))
     tempImg_:np.ndarray = np.fromfunction(f, (_w, _h), dtype=int)
     
-    del f, t, _t
+    del f
     
     @np.vectorize
-    def f(x:int, y:int):
+    def temp_f(x:int, y:int):
         if y:
             if tempImg_[x][y] != tempImg_[x][y-1]:
                 return "\033[38;2;" + palette[tempImg_[x][y]] + "m"
             else:
                 return ""
-            pass
         else:
             return "\033[38;2;" + palette[tempImg_[x][y]] + "m"
-        
     
-    temp_f = np.vectorize(lambda x, y: "\033[38;2;" + palette[tempImg_[x][y]] + "m")
-    ss_ = np.fromfunction(f, (_w, _h), dtype=int)
+    ss_ = np.fromfunction(temp_f, (_w, _h), dtype=int)
     del tempImg_, temp_f, f
     
     temp_f = np.vectorize(lambda x, y: ss_[x][y] + ss[x][y] + ("", ESCCLEANER)[int(y >= (len(ss[x])-1))])
@@ -263,12 +237,10 @@ def ImgShow(image) -> None:
     axs.imshow(image)
     plt.show()
 
-
-
 def translet(image:np.ndarray, fileout:str = "out.txt", *, _a:Iterable = asii_1, wh = tuple(os.get_terminal_size())) -> None:    
     w, h = wh
     # strings = img2ConsoleImg(image, _a, w, h)
-    strings = _img2ConsoleImg(image, _a, w, h)
+    strings = img2ConsoleImg(image, _a, w, h)
     return "\n".join(["".join(s) for s in strings.tolist()])
 
 def getFileNames() -> list[str]:
