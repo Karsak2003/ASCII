@@ -40,14 +40,6 @@ asii_3v = r" .',:`;\"i!I^lrvjcx<>Yft*JL?TuynozaksFVXehCqKUdpSZbAwGPgEOHmDQNR%&BW
 asii_4 = r" .;coPO?@#"
 #‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾
 
-# """
-#  	!	"	#	$	%	&	'	(	)	*	+	,	-	.	/
-# 0	1	2	3	4	5	6	7	8	9	:	;	<	=	>	?
-# @	A	B	C	D	E	F	G	H	I	J	K	L	M	N	O
-# P	Q	R	S	T	U	V	W	X	Y	Z	[	\	]	^	_
-# `	a	b	c	d	e	f	g	h	i	j	k	l	m	n	o
-# p	q	r	s	t	u	v	w	x	y	z	{	|	}	~
-# """
 
 CWD = os.getcwd()
 FRESU = CWD + "\\~resu\\"
@@ -132,7 +124,7 @@ def img2ConsoleImg(image:np.ndarray, _a:str, w:int, h:int):
     
     t:np.ndarray = np.fromfunction(f, (_w, _h), dtype=int)
     _t:list = []
-    for i in t.tolist:_t += i
+    for i in t.tolist():_t += i
     palette:list[str] = list(set(_t))
     
     del t, _t, f
@@ -144,8 +136,6 @@ def img2ConsoleImg(image:np.ndarray, _a:str, w:int, h:int):
         b:str = str(tempImg_[x][y][2]) 
         return palette.index(";".join((r, g, b)))
     tempImg_:np.ndarray = np.fromfunction(f, (_w, _h), dtype=int)
-    
-    del f
     
     @np.vectorize
     def temp_f(x:int, y:int):
@@ -229,14 +219,6 @@ def DoG(image:np.ndarray, kSize:int, rSize:float, teta:float = 1., *, sigmaX_1:f
     ksize_hight = np.int_(ksize_low*max(rSize, 1/rSize))
     return (1 + teta)*cv2.GaussianBlur(image, ksize_low, sigmaX_1) - teta*cv2.GaussianBlur(image, ksize_hight, sigmaX_2)
 
-def ImgShow(image) -> None:
-    f, a = plt.subplots()
-    axs:Axes = a
-    fig:Figure = f
-    del a, f
-    axs.imshow(image)
-    plt.show()
-
 def translet(image:np.ndarray, fileout:str = "out.txt", *, _a:Iterable = asii_1, wh = tuple(os.get_terminal_size())) -> None:    
     w, h = wh
     # strings = img2ConsoleImg(image, _a, w, h)
@@ -263,26 +245,13 @@ def getImagis(fileNames:list[str]):
                 cap:cv2.VideoCapture = cv2.VideoCapture(fileName)
                 cap_len:int = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
                 cap_FPS:float = (cap.get(cv2.CAP_PROP_FPS))
-                result:list[np.ndarray] = [img2CRev(cap.read()[1]) for _ in range(cap_len)]
+                result:list[np.ndarray] = [cap.read()[1] for _ in range(cap_len)]
                 t:tuple = (result, cap_FPS)
                 cap.release()
                 yield (ind, t)
     return sel
 
-def packing2GIF(lenFrames:int, frames:list[Image.Image] = [], fileout:str="out") ->  None:
-    for i in range(lenFrames):
-        with Image.open(fileout+f"({i}).png") as frame: 
-            frames.append(frame.copy())
-        os.remove(fileout+f"({i}).png")
-    frames[0].save(
-                fileout + '.gif',
-                save_all=True,
-                append_images=frames[1:],  # Срез который игнорирует первый кадр.
-                optimize=True,
-                duration=100,
-                loop=0
-            )
-    frames.clear()
+
 
 def link(uri, label=None):
     if label is None: 
