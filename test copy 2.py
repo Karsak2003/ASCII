@@ -156,7 +156,7 @@ def img2ConsoleImg(image:np.ndarray, _a:str, w:int, h:int):
     del ss, ss_, _w, _h, _
     return strings
 
-Img2quantize    = lambda x, h: (np.ceil(x/h) + 0.5)*h
+Img2quantize    = lambda x, h: (np.ceil(x/h) + 0.5)*h                                   
 I_Img2quantize  = lambda x, k: np.ceil(x/k + 0.5)*k
 img2filter2D    = lambda x, a=kernel2: cv2.filter2D(src=x, ddepth=-1, kernel=a)
 #endregion IMG2
@@ -169,24 +169,6 @@ def GetMitemRGB(i:int, j:int, fi:int) -> float:
 @np.vectorize
 def GetMitem(i:int, j:int) -> float: 
     return  S*(M[(i)%K][(j)%K] - 0.5)
-
-"""
-def _where(x, x2T, x2F) -> Any:
-    def f(f_temp):
-        def _f_(*atr):
-            assert len(atr) in [3, 5]
-            if len(atr) == 3:
-                image, kSize, rSize, = atr
-                return np.where(f_temp(image, kSize, rSize) >= x, x2T, x2F)
-            else:
-                image, kSize, rSize, sigmaX_1, sigmaX_2 = atr
-                return np.where(f_temp(image, kSize, rSize, sigmaX_1=sigmaX_1, sigmaX_2=sigmaX_2) >= x, x2T, x2F)
-            
-        return _f_
-    return f
-
-@_where(0.01, 1, 0)
-"""
 
 def SelectContour(image:np.ndarray, size, *, x = 0.75) -> tuple[str, np.ndarray]:
     new_size:np.ndarray[int] = np.array((size[0], size[1]))
@@ -245,7 +227,7 @@ def getImagis(fileNames:list[str]):
                 cap:cv2.VideoCapture = cv2.VideoCapture(fileName)
                 cap_len:int = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
                 cap_FPS:float = (cap.get(cv2.CAP_PROP_FPS))
-                result:list[np.ndarray] = [cap.read()[1] for _ in range(cap_len)]
+                result:list[np.ndarray] = [img2CRev(cap.read()[1]) for _ in range(cap_len)]
                 t:tuple = (result, cap_FPS)
                 cap.release()
                 yield (ind, t)
@@ -307,10 +289,6 @@ def Main(ars = None) -> None:
                 _ts:str = f"#{temp_ts[0]} цик; \t {i+1}/{lenght_ing} кадр; \t {temp_ts[1]}//{temp_ts[2]} = {temp_ts[1]//temp_ts[2]}"
                 
                 print(_ts_orign + "\n"+ f"FPS:{1/dTFrame}\t" + _ts + "\n" + ss[i], flush=True)
-                
-                # with open(FTEMP+"2_"+f"test({ind})({i}).txt", mode="w+") as file:
-                #     file.write(_ts_orign + "\n"+ f"FPS:{1/dTFrame}\t" + _ts + "\n" + ss[i])
-                    
                                 
                 if temp_ts[1] >= temp_ts[2]:                    
                     input("Нажмите 'ENTER' для продолжения...")
@@ -363,5 +341,6 @@ SGA:dict[str, str] = {
 "w": "∴",
 "x": "/",
 "y": "|",
-"z": "⨅",}
+"z": "⨅",
+}
 """Standard Galactic Alphabet"""
