@@ -3,3 +3,5 @@
 /~temp
 /.venv
 t.py
+.vscode/launch.json
+.gitignore

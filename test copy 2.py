@@ -201,7 +201,7 @@ def DoG(image:np.ndarray, kSize:int, rSize:float, teta:float = 1., *, sigmaX_1:f
     ksize_hight = np.int_(ksize_low*max(rSize, 1/rSize))
     return (1 + teta)*cv2.GaussianBlur(image, ksize_low, sigmaX_1) - teta*cv2.GaussianBlur(image, ksize_hight, sigmaX_2)
 
-def translet(image:np.ndarray, fileout:str = "out.txt", *, _a:Iterable = asii_1, wh = tuple(os.get_terminal_size())) -> None:    
+def translet(image:np.ndarray, fileout:str = "out.txt", *, _a:Iterable | str = asii_1, wh = tuple(os.get_terminal_size())) -> None:    
     w, h = wh
     # strings = img2ConsoleImg(image, _a, w, h)
     strings = img2ConsoleImg(image, _a, w, h)
