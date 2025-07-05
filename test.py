@@ -25,7 +25,7 @@ from tkinter import filedialog as tk_filedialog
 CWD = os.getcwd()
 FRESU = CWD + "\\~resu\\"
 FTEMP = CWD + "\\~temp\\"
-K:int = 8
+K:int = 16
 S:float = 1.
 ESCCLEANER:str = "\033[0m"
 
@@ -56,6 +56,27 @@ Mat2:np.ndarray             = np.array(
 )/4
 M:np.ndarray    = Mat2N(K)
 #endregion Matrix
+
+with open( "ThresholdMap.py", mode="w+") as file:
+    print("""import numpy as np\n""", file=file) 
+    print("""class ThresholdMap:\n""", file=file) 
+
+    for i in range(2, K+1):
+        _s:str = f"\tMat_{i} = np."
+        try:
+            _s += repr(Mat2N(i))
+        except:
+            continue
+        print(_s, file=file)
+    
+    print("""
+\t@staticmethod
+\tdef Mat2N(n:int) -> np.ndarray:
+\t\tassert not(n%2) and (type(n) is int)
+\t\tif n > 2:
+\t\t\treturn np.kron(np.ones((2, 2)), ThresholdMap.Mat2N(n//2)) + np.kron(ThresholdMap.Mat_2, np.ones((n//2, n//2)))/((n/2)**2)
+\t\telse:
+\t\t\treturn ThresholdMap.Mat_2""", file=file) 
 
 #region IMG2
 img2gray        = lambda x: cv2.cvtColor(x, cv2.COLOR_BGR2GRAY)

@@ -135,8 +135,6 @@ def translet(image:np.ndarray, fileout:str = "out.txt", *, _a:float = asii_1):
         stroca = np.fromfunction(translation2symbols, out_contur.shape, dtype=int)
         print("\n".join(["".join(s) for s in stroca]), file=file, flush=True)
         
-        
-    
     # ImgShow(contur)
     #//cv2.imwrite(FTEMP+f"_out.png", contur*255)
     

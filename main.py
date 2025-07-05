@@ -8,7 +8,7 @@ import cv2.data
 import numpy as np  
 
 from ThresholdMap import *  # type: ignore[reportMissingImports] 
- 
+
 import os
 import os.path as PATH
 from PIL import Image
@@ -20,8 +20,6 @@ import matplotlib.pyplot as plt
 from matplotlib.figure import Figure 
 from matplotlib.axes import Axes 
 import matplotlib.animation as animation
-
-# from PySide6 import QtWidgets, QtCore, QtGui
 
 from tkinter import filedialog as tk_filedialog
 #endregion IMPORT
@@ -48,16 +46,10 @@ asii_4 = r" .;coPO?@#"
 CWD = os.getcwd()
 FRESU = CWD + "\\~resu\\"
 FTEMP = CWD + "\\~temp\\"
-# K:int = 8
 S:float = 0.5
 ESCCLEANER:str = "\033[0m"
 
-# def Mat2N(n:int) -> np.ndarray:
-#     assert not(n%2) and (type(n) is int)
-#     if n > 2:
-#         return np.kron(np.ones((2, 2)), Mat2N(n//2)) + np.kron(Mat2, np.ones((n//2, n//2)))/((n/2)**2)
-#     else:
-#         return Mat2
+I = lambda _i: (lambda x: x/np.max(x))((lambda x: x - np.min(x))(_i))
 
 #region Matrix
 kernel2 = np.ones((5, 5), np.float32)/25
@@ -98,47 +90,48 @@ def img2ConsoleImg(image:np.ndarray, _a:str, w:int, h:int):
     global ESCCLEANER
     tempImg:np.ndarray = cv2.resize(image, (w, h))
     
-    tempImgGray:np.ndarray = I_Img2quantize(img2gray(tempImg)/255, 1/(len(_a)-1))
-    temp_f = np.vectorize(lambda x, y: _a[::-1][int(tempImgGray[x][y]//(1/(len(_a)-1))-1)])
+    tempImgGray:np.ndarray = I_Img2Qtize(img2gray(tempImg)/255, len(_a))
+    temp_f = np.vectorize(lambda x, y: _a[int(tempImgGray[x][y]//(1/(len(_a)-1))-1)])
     ss = np.fromfunction(temp_f, tempImgGray.shape, dtype=int)
     del tempImgGray, temp_f
     
-    tempImg_:np.ndarray = I_Img2quantize(tempImg/255, 1/(len(_a)-1)) 
+    tempImg_:np.ndarray = I_Img2Qtize(tempImg/256, len(_a)) 
 
-    tempImg_ -= tempImg_.min()
-    tempImg_ /= tempImg_.max()
-    tempImg_ = tempImg_ * 255
-    
-    tempImg_ = np.astype(tempImg_, int)    
+    tempImg_ = np.astype(I(tempImg_)*256, int)    
     
     _w, _h, _ = tempImg_.shape    
     
-
-    paletteFond:list[str] = list(set(getPaletteFond(tempImg_)))
+    @np.vectorize
+    def f(x:int, y:int) -> str:
+        r:str = str(tempImg_[x][y][0])
+        g:str = str(tempImg_[x][y][1])
+        b:str = str(tempImg_[x][y][2]) 
+        return ";".join((r, g, b))
     
-    paletteBack:list[str] = list(set(getPaletteBack(tempImg_)))
+    t:np.ndarray = np.fromfunction(f, (_w, _h), dtype=int)
+    _t:list = []
+    for i in t.tolist():_t += i
+    palette:list[str] = list(set(_t))
+    
+    del t, _t, f
     
     @np.vectorize
     def f(x:int, y:int):
         r:str = str(tempImg_[x][y][0])
         g:str = str(tempImg_[x][y][1])
         b:str = str(tempImg_[x][y][2]) 
-        return paletteFond.index(";".join((r, g, b)))
+        return palette.index(";".join((r, g, b)))
     tempImg_:np.ndarray = np.fromfunction(f, (_w, _h), dtype=int)
     
     @np.vectorize
     def temp_f(x:int, y:int):
         if y:
             if tempImg_[x][y] != tempImg_[x][y-1]:
-                #return "\033[48;2;" + paletteFond[tempImg_[x][y]] + "m" + "\033[30m"
-                # return "\033[48;2;" + paletteBack[tempImg_[x][y]] + "m" + "\033[38;2;" + paletteFond[tempImg_[x][y]] + "m"
-                return "\033[38;2;" + paletteFond[tempImg_[x][y]] + "m"
+                return "\033[38;2;" + palette[tempImg_[x][y]] + "m"
             else:
                 return ""
         else:
-            # return "\033[48;2;" + paletteFond[tempImg_[x][y]] + "m" + "\033[30m"
-            # return "\033[48;2;" + paletteBack[tempImg_[x][y]] + "m" + "\033[38;2;" + paletteFond[tempImg_[x][y]] + "m"
-            return "\033[38;2;" + paletteFond[tempImg_[x][y]] + "m"
+            return "\033[38;2;" + palette[tempImg_[x][y]] + "m"
     
     ss_ = np.fromfunction(temp_f, (_w, _h), dtype=int)
     del tempImg_, temp_f, f
@@ -151,7 +144,9 @@ def img2ConsoleImg(image:np.ndarray, _a:str, w:int, h:int):
 
 Img2quantize    = lambda x, h: (np.ceil(x/h) + 0.5)*h                                   
 I_Img2quantize  = lambda x, k: np.ceil(x/k + 0.5)*k
+I_Img2Qtize     = lambda x, k: np.ceil(x*(k-1) + 0.5)/(k-1)
 img2filter2D    = lambda x, a=kernel2: cv2.filter2D(src=x, ddepth=-1, kernel=a)
+
 #endregion IMG2
 
 Sigmoid = lambda x: 1/(1 + np.e**(-x))
@@ -159,68 +154,21 @@ Sigmoid = lambda x: 1/(1 + np.e**(-x))
 @np.vectorize
 def GetMitemRGB(i:int, j:int, fi:int) -> float: 
     m:np.ndarray = ThresholdMap.Mat_8
-    k:np.ndarray = len(m)
-    return  S*(m[i%k][j%k] - 0.5)
+    k:int = len(m)
+    return  (m[i%k][j%k] - 0.5)
 @np.vectorize
-def GetMitem(i:int, j:int) -> float: 
+def GetMitem(i:int, j:int) -> float:
     m:np.ndarray = ThresholdMap.Mat_8
-    k:np.ndarray = len(m)
-    return  S*(m[(i)%k][(j)%k] - 0.5)
+    k:int = len(m) 
+    return  (m[(i)%k][(j)%k] - 0.5)
 
-def getPaletteBack(tempImg_:np.ndarray) -> list[int]:
+def img2Sharp(image:np.ndarray, sigma=1.0, strength=1.5, kernel_size=(5, 5)):
     
-    _w, _h, _ = tempImg_.shape
+    blurred = cv2.GaussianBlur(image, kernel_size, sigma)
     
-    @np.vectorize
-    def f(x:int, y:int) -> str:
-        r:str = str(tempImg_[x][y][0]//4)
-        g:str = str(tempImg_[x][y][1]//4)
-        b:str = str(tempImg_[x][y][2]//4) 
-        return ";".join((r, g, b))
-    t:np.ndarray = np.fromfunction(f, (_w, _h), dtype=int)
-    _t:list = []
-    for i in t.tolist():_t += i
-    return _t
-
-def getPaletteFond(tempImg_:np.ndarray) -> list[int]:
+    sharpened = cv2.addWeighted(image, 1.0 + strength, blurred, -strength, 0)
     
-    _w, _h, _ = tempImg_.shape
-    
-    @np.vectorize
-    def f(x:int, y:int) -> str:
-        r:str = str(tempImg_[x][y][0])
-        g:str = str(tempImg_[x][y][1])
-        b:str = str(tempImg_[x][y][2]) 
-        return ";".join((r, g, b))
-    t:np.ndarray = np.fromfunction(f, (_w, _h), dtype=int)
-    _t:list = []
-    for i in t.tolist():_t += i
-    return _t
-
-def SelectContour(image:np.ndarray, size, *, x = 0.75) -> tuple[str, np.ndarray]:
-    new_size:np.ndarray[int] = np.array((size[0], size[1]), dtype=int)
-    
-    temp:np.ndarray = I_Img2quantize(img2gray(image)/255, 1/(2**8))
-    
-    temp_contur:np.ndarray = np.where(DoG(temp, 5, 7/5, 0.95) >=x, 1.0, 0.)
-    temp_contur-=temp_contur.min()
-    temp_contur/=temp_contur.max()
-    
-    contur:np.ndarray = I_Img2quantize(img2Angle(temp_contur), 1/8)
-    contur:np.ndarray = (2*contur-1) * 180
-    contur:np.ndarray = np.where(contur < 0, contur + 180, contur)
-    
-    out_contur:np.ndarray = cv2.resize(np.abs(contur//45), new_size)
-    stroca:np.ndarray[str] = np.empty(out_contur.shape, str)
-
-    del contur, temp_contur, temp, x
-    
-    @np.vectorize
-    def translation2symbols(i:int, j:int):
-        x:int = out_contur[i][j]
-        return ["\\", "|", "/", "_"][int(x)] if not np.isnan(x) else " "
-    stroca = np.fromfunction(translation2symbols, out_contur.shape, dtype=int)
-    return "\n".join(["".join(s) for s in stroca]), out_contur
+    return sharpened
 
 def DoG(image:np.ndarray, kSize:int, rSize:float, teta:float = 1., *, sigmaX_1:float=0., sigmaX_2:float=0.) -> np.ndarray:
     assert kSize%2 and rSize > 0
@@ -269,8 +217,6 @@ def getImagis(fileNames:list[str]):
                 yield (ind, t)
     return sel
 
-
-
 def link(uri, label=None):
     if label is None: 
         label = uri
@@ -281,116 +227,67 @@ def link(uri, label=None):
 
     return escape_mask.format(parameters, uri, label)
 
+def imgShow(img:np.ndarray) -> None:
+    
+    plt.imshow(img)
+    plt.show()
+    
+    pass
+
+def test(imgs:list[np.ndarray], fps):
+    fig, ax = plt.subplots()    
+    
+    art = []
+    
+    for img in imgs:
+        cont = ax.imshow(img)
+        art.append([cont])
+    ani = animation.ArtistAnimation(fig=fig, artists=art, interval= np.ceil(1000/fps))
+    plt.show()
+
 
 @staticmethod
-def Main(ars = None) -> None:
+def Main() -> None:
     
     fileNames:list[str] = getFileNames()
-    gen_queueImages:Generator[tuple[int, tuple[np.ndarray, None]], tuple[int, tuple[list[np.ndarray], float]]] = getImagis(fileNames)()
-
-    _a = asii_3v
-    wh = tuple(os.get_terminal_size())
+    gen_queueImages:Generator = getImagis(fileNames)
     
-    dTFrame:int = 1/60#second
-    duration:int = 5
-    
-    input("Получение данных завершино.\nНажмите 'ENTER' для продолжения...")
-    # print(f"\033[8;{wh[1]+5};{wh[0]+5}")
-    
-    
-    for ind, image in gen_queueImages:
-        # _ts_orign:str = f"исходник: <a href=\"{fileNames[ind]}\">{fileNames[ind].split("/")[-1]}</a>"
-        _ts_orign:str = f"исходник: {link(fileNames[ind], fileNames[ind].split("/")[-1])}"
-        img, fps = image
+    for ind, image in gen_queueImages():
+        Img, fps = image
         
-        if type(img) is list:
-                        
-            images:list[np.ndarray] = img
-            lenght_ing:int = len(images) 
-            ss:list[str] = []
-            dTFrame:int = 1/fps
-            
-            wh = f_csShape4imgShape(tuple(images[0].shape), wh)
-            
-            bar = IncrementalBar('Countdown', max = lenght_ing)
-            for i in range(lenght_ing):
+        if type(Img) is list:
+            imgShow(Img[0])
+            _ti:list = []
+            bar = IncrementalBar('Countdown', max = len(Img))
+            imgSize =  np.array((Img[0].shape[1], Img[0].shape[0]), int)
+            for img in Img:
+                _img = np.fromfunction(GetMitemRGB, img.shape, dtype=int)
+                temp:np.ndarray = I(I_Img2Qtize(I(img/256+S*_img), 2))
+                
+                temp = cv2.resize(temp, imgSize//2)
+                _ti.append(cv2.resize(temp, imgSize))
+                del temp
                 bar.next()
-                ss.append(translet(images[i], fileout=f"out({ind})({i}).txt", _a=_a, wh = wh))
-                # ss.append(SelectContour(images[i], size=wh)[0])
             bar.finish()
             del bar
             
-            _ts_orign += (lambda hw: f":{hw[0]}x{hw[1]}|{hw[0]/hw[1]};")(images[0].shape)
-            
-            print("\033[H\033[J", end="")
-            
-            i_counter:int = 0
-            while True:
-                i:int = i_counter % lenght_ing
-                temp_ts:tuple = (i_counter, i_counter // lenght_ing, (duration / (dTFrame * lenght_ing)))
-                _ts:str = f"#{temp_ts[0]} цик; \t {i+1}/{lenght_ing} кадр; \t {temp_ts[1]}//{temp_ts[2]} = {temp_ts[1]//temp_ts[2]}"
-                
-                print(_ts_orign + f"\tРазрешение: {wh[1]}x{wh[0]}|{wh[1]/wh[0]};" + "\n"+ f"FPS:{1/dTFrame}\t" + _ts + "\n" + ss[i], flush=True)
-
-                with open(FTEMP+f"test({i}).ans", "w+") as f: print( ss[i], file=f, flush=True)
-                
-                if temp_ts[1] >= temp_ts[2]:                    
-                    input("Нажмите 'ENTER' для продолжения...")
-                    print("\033[H\033[J", end="")
-                    break
-                i_counter+=1
-                time.sleep(dTFrame)
-                print("\033[H\033[3J", end="", flush=True)
+            test(_ti, fps)
         else:
-            print("\033[H\033[J", end="")
-            wh = f_csShape4imgShape(tuple(img.shape), wh)
-            _ts_orign += (lambda wh: f":{wh[1]}x{wh[0]}|{wh[0]/wh[1]};")(img.shape)
+            img:np.ndarray = img2Sharp(Img/256, 3.0, 5.5, (7,7))
             
-            print(_ts_orign + f"\tРазрешение: {wh[0]}x{wh[1]}|{wh[1]/wh[0]};")
-            _s:str = translet(img, fileout=f"out({ind}).txt", _a=_a, wh=wh)
-            print(_s, flush=True)
-            with open(FTEMP+f"test_.ans", "w+") as f: print( _s, file=f, flush=True)
+            _img = np.fromfunction(GetMitemRGB, img.shape, dtype=int)
+
+            imgShow(I(I_Img2Qtize(I(img+0.5*_img), 2)))
             
-            input("Нажмите 'ENTER' для продолжения...")
-            # time.sleep(1)
-            print("\033[H\033[J", end="", flush=True)
+            
+        #_img:np.ndarray = cv2.resize(img, (img.shape[0]//10, img.shape[1]//10))
+        #imgShow(cv2.resize(_img, (img.shape[1], img.shape[0])))
+        
 
 
 if __name__ == "__main__": 
-    input("#START")
-    print("\033[H\033[J", end="")
+    #input("#START")
+    #print("\033[H\033[J", end="")
     Main()
     #input("Pleas press 'ENTER' to continue...")
-    input("#END")
-
-
-
-SGA:dict[str, str] = {
-"a": "ᔑ",
-"b": "ʖ",
-"c": "ᓵ",
-"d": "↸",
-"e": "ᒷ",
-"f": "⎓",
-"g": "⊣",
-"h": "⍑",
-"я": "╎",
-"j": "⋮",
-"k": "ꖌ",
-"l": "ꖎ",
-"m": "ᒲ",
-"n": "リ",
-"o": "𝙹",
-"p": "⇅",
-"q": "ᑑ",
-"r": "∷",
-"s": "ᓭ",
-"t": "ℸ",
-"u": "⚍",
-"v": "⍊",
-"w": "∴",
-"x": "/",
-"y": "|",
-"z": "⨅",
-}
-"""Standard Galactic Alphabet"""
+    #input("#END")
