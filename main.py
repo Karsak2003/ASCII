@@ -145,7 +145,7 @@ def img2ConsoleImg(image:np.ndarray, _a:str, w:int, h:int):
 Img2quantize    = lambda x, h: (np.ceil(x/h) + 0.5)*h                                   
 I_Img2quantize  = lambda x, k: np.ceil(x/k + 0.5)*k
 I_Img2Qtize     = lambda x, k: np.ceil(x*(k-1) + 0.5)/(k-1)
-img2filter2D    = lambda x, a=kernel2: cv2.filter2D(src=x, ddepth=-1, kernel=a)
+img2filter2D    = lambda x, a=kernel2: cv2.filter2D(src=x, ddepth=-1, kernel=a) 
 
 #endregion IMG2
 
