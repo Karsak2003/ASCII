@@ -67,6 +67,7 @@ MeanMat:np.ndarray          = np.array([1/3, 1/3, 1/3])
 RedMat:np.ndarray           = np.array([[1, 0, 0],[0, 0, 0],[0, 0, 0]])
 GreenMat:np.ndarray         = np.array([[0, 1, 0],[0, 0, 0],[0, 0, 0]])
 BlueMat:np.ndarray          = np.array([[0, 0, 1],[0, 0, 0],[0, 0, 0]])
+CRevMat:np.ndarray          = np.array([[0, 0, 1],[0, 1, 0],[1, 0, 0]])
 MeanMat2Red:np.ndarray      = np.array([[1/3, 0, 0],[1/3, 0, 0],[1/3, 0, 0]])
 MeanMat2Green:np.ndarray    = np.array([[0, 1/3, 0],[0, 1/3, 0],[0, 1/3, 0]])
 MeanMat2Blue:np.ndarray     = np.array([[0, 0, 1/3],[0, 0, 1/3],[0, 0, 1/3]])
@@ -92,14 +93,15 @@ def img2Angle(x:np.ndarray):
     GxImg_:np.ndarray = img2filter2D(x, a=Gx)
     GyImg_:np.ndarray = img2filter2D(x, a=Gy)
     contur:np.ndarray = (np.arctan(GyImg_/GxImg_)/np.pi + 1) * 0.5
-    return contur
+    return contur 
 
 def img2ConsoleImg(image:np.ndarray, _a:str, w:int, h:int):
     global ESCCLEANER
     tempImg:np.ndarray = cv2.resize(image, (w, h))
     
     tempImgGray:np.ndarray = I_Img2quantize(img2gray(tempImg)/255, 1/(len(_a)-1))
-    temp_f = np.vectorize(lambda x, y: _a[::-1][int(tempImgGray[x][y]//(1/(len(_a)-1))-1)])
+    temp_f = np.vectorize(lambda x, y: _a[int(tempImgGray[x][y]//(1/(len(_a)-1))-1)])
+    # temp_f = np.vectorize(lambda x, y: _a[::-1][int(tempImgGray[x][y]//(1/(len(_a)-1))-1)])
     ss = np.fromfunction(temp_f, tempImgGray.shape, dtype=int)
     del tempImgGray, temp_f
     
@@ -234,7 +236,7 @@ def translet(image:np.ndarray, fileout:str = "out.txt", *, _a:Iterable | str = a
     strings = img2ConsoleImg(image, _a, w, h)
     return "\n".join(["".join(s) for s in strings.tolist()])
 
-def f_csShape4imgShape(imgShape:tuple[int, int, Any], csShape:tuple[int, int, Any]) ->  tuple[int, int]:
+def csShape4imgShape(imgShape:tuple[int, int, Any], csShape:tuple[int, int, Any]) ->  tuple[int, int]:
     imgW:int = imgShape[1]
     imgH:int = imgShape[0]
     imgTg:float = round(imgH/imgW, 2)
@@ -293,7 +295,7 @@ def Main(ars = None) -> None:
     
     dTFrame:int = 1/60#second
     duration:int = 5
-    
+    print(wh)
     input("Получение данных завершино.\nНажмите 'ENTER' для продолжения...")
     # print(f"\033[8;{wh[1]+5};{wh[0]+5}")
     
@@ -310,7 +312,7 @@ def Main(ars = None) -> None:
             ss:list[str] = []
             dTFrame:int = 1/fps
             
-            wh = f_csShape4imgShape(tuple(images[0].shape), wh)
+            wh = csShape4imgShape(tuple(images[0].shape), wh)
             
             bar = IncrementalBar('Countdown', max = lenght_ing)
             for i in range(lenght_ing):
@@ -343,7 +345,7 @@ def Main(ars = None) -> None:
                 print("\033[H\033[3J", end="", flush=True)
         else:
             print("\033[H\033[J", end="")
-            wh = f_csShape4imgShape(tuple(img.shape), wh)
+            wh = csShape4imgShape(tuple(img.shape), wh)
             _ts_orign += (lambda wh: f":{wh[1]}x{wh[0]}|{wh[0]/wh[1]};")(img.shape)
             
             print(_ts_orign + f"\tРазрешение: {wh[0]}x{wh[1]}|{wh[1]/wh[0]};")

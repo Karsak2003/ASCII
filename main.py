@@ -39,14 +39,13 @@ asii_3 = r" .',:`;\"i!I^lr1vjcx<>Yft*JL?T7uynozaksFVXeh3Cq2KUdp4SZbA0w5GPg9EOH6m
 asii_3v = r" .',:`;\"i!I^lrvjcx<>Yft*JL?TuynozaksFVXehCqKUdpSZbAwGPgEOHmDQNR%&BWM#@$"
 #‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾
 #__________________________________________________________________________________
-asii_4 = r" .;coPO?@#"
+asii_4 = r" .;coPO?@▮"
 #‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾
 
 
 CWD = os.getcwd()
 FRESU = CWD + "\\~resu\\"
 FTEMP = CWD + "\\~temp\\"
-S:float = 0.5
 ESCCLEANER:str = "\033[0m"
 
 I = lambda _i: (lambda x: x/np.max(x))((lambda x: x - np.min(x))(_i))
@@ -59,6 +58,7 @@ MeanMat:np.ndarray          = np.array([1/3, 1/3, 1/3])
 RedMat:np.ndarray           = np.array([[1, 0, 0],[0, 0, 0],[0, 0, 0]])
 GreenMat:np.ndarray         = np.array([[0, 1, 0],[0, 0, 0],[0, 0, 0]])
 BlueMat:np.ndarray          = np.array([[0, 0, 1],[0, 0, 0],[0, 0, 0]])
+CRevMat:np.ndarray          = np.array([[0, 0, 1],[0, 1, 0],[1, 0, 0]])
 MeanMat2Red:np.ndarray      = np.array([[1/3, 0, 0],[1/3, 0, 0],[1/3, 0, 0]])
 MeanMat2Green:np.ndarray    = np.array([[0, 1/3, 0],[0, 1/3, 0],[0, 1/3, 0]])
 MeanMat2Blue:np.ndarray     = np.array([[0, 0, 1/3],[0, 0, 1/3],[0, 0, 1/3]])
@@ -86,18 +86,18 @@ def img2Angle(x:np.ndarray):
     contur:np.ndarray = (np.arctan(GyImg_/GxImg_)/np.pi + 1) * 0.5
     return contur
 
-def img2ConsoleImg(image:np.ndarray, _a:str, w:int, h:int):
-    global ESCCLEANER
-    tempImg:np.ndarray = cv2.resize(image, (w, h))
+def img2ConsoleImg(image:np.ndarray, _a:str, w:int, h:int, *, s:float = 0.5):
+    global ESCCLEANER   
     
-    tempImgGray:np.ndarray = I_Img2Qtize(img2gray(tempImg)/255, len(_a))
+    tempImg:np.ndarray  = I(cv2.resize(image, (w, h)))
+    
+    
+    tempImgGray:np.ndarray = np.dot(tempImg, MeanMat)
     temp_f = np.vectorize(lambda x, y: _a[int(tempImgGray[x][y]//(1/(len(_a)-1))-1)])
     ss = np.fromfunction(temp_f, tempImgGray.shape, dtype=int)
     del tempImgGray, temp_f
-    
-    tempImg_:np.ndarray = I_Img2Qtize(tempImg/256, len(_a)) 
 
-    tempImg_ = np.astype(I(tempImg_)*256, int)    
+    tempImg_:np.ndarray = np.astype(tempImg*256, int)    
     
     _w, _h, _ = tempImg_.shape    
     
@@ -153,12 +153,12 @@ Sigmoid = lambda x: 1/(1 + np.e**(-x))
 
 @np.vectorize
 def GetMitemRGB(i:int, j:int, fi:int) -> float: 
-    m:np.ndarray = ThresholdMap.Mat_8
+    m:np.ndarray = ThresholdMap.Mat_16
     k:int = len(m)
     return  (m[i%k][j%k] - 0.5)
 @np.vectorize
 def GetMitem(i:int, j:int) -> float:
-    m:np.ndarray = ThresholdMap.Mat_8
+    m:np.ndarray = ThresholdMap.Mat_16
     k:int = len(m) 
     return  (m[(i)%k][(j)%k] - 0.5)
 
@@ -176,10 +176,10 @@ def DoG(image:np.ndarray, kSize:int, rSize:float, teta:float = 1., *, sigmaX_1:f
     ksize_hight = np.int_(ksize_low*max(rSize, 1/rSize))
     return (1 + teta)*cv2.GaussianBlur(image, ksize_low, sigmaX_1) - teta*cv2.GaussianBlur(image, ksize_hight, sigmaX_2)
 
-def translet(image:np.ndarray, fileout:str = "out.txt", *, _a:Iterable | str = asii_1, wh = tuple(os.get_terminal_size())) -> str:    
+def translet(image:np.ndarray, fileout:str = "out.txt", *, _a:Iterable | str = asii_1, wh = tuple(os.get_terminal_size()), s:float = 0.5) -> str:    
     w, h = wh
     # strings = img2ConsoleImg(image, _a, w, h)
-    strings = img2ConsoleImg(image, _a, w, h)
+    strings = img2ConsoleImg(image, _a, w, h, s=s)
     return "\n".join(["".join(s) for s in strings.tolist()])
 
 def f_csShape4imgShape(imgShape:tuple[int, int, Any], csShape:tuple[int, int, Any]) ->  tuple[int, int]:
@@ -211,11 +211,28 @@ def getImagis(fileNames:list[str]):
                 cap:cv2.VideoCapture = cv2.VideoCapture(fileName)
                 cap_len:int = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
                 cap_FPS:float = (cap.get(cv2.CAP_PROP_FPS))
-                result:list[np.ndarray] = [img2CRev(cap.read()[1]) for _ in range(cap_len)]
+                result:list[np.ndarray] = [cap.read()[1] for _ in range(cap_len)]
                 t:tuple = (result, cap_FPS)
                 cap.release()
                 yield (ind, t)
     return sel
+
+def packing2GIF(lenFrames:int, frames:list[Image.Image] = [], fileout:str=FTEMP + "out", *, bar:IncrementalBar = None, duration:int = 100) ->  None:
+    for i in range(lenFrames):
+        with Image.open(fileout+f"({i}).png") as frame: 
+            frames.append(frame.copy())
+        os.remove(fileout+f"({i}).png")
+        bar.next()
+    frames[0].save(
+                fileout + '.gif',
+                save_all=True,
+                append_images=frames[1:],  # Срез который игнорирует первый кадр.
+                optimize=True,
+                duration=duration,
+                loop=0
+            )
+    frames.clear()
+    bar.finish
 
 def link(uri, label=None):
     if label is None: 
@@ -234,7 +251,7 @@ def imgShow(img:np.ndarray) -> None:
     
     pass
 
-def test(imgs:list[np.ndarray], fps):
+def gifShow(imgs:list[np.ndarray], fps) -> None:
     fig, ax = plt.subplots()    
     
     art = []
@@ -245,6 +262,14 @@ def test(imgs:list[np.ndarray], fps):
     ani = animation.ArtistAnimation(fig=fig, artists=art, interval= np.ceil(1000/fps))
     plt.show()
 
+def csShape4imgShape(imgShape:tuple[int, int, Any], csShape:tuple[int, int, Any]) ->  tuple[int, int]:
+    imgW:int = imgShape[1]
+    imgH:int = imgShape[0]
+    imgTg:float = round(imgH/imgW, 2)
+    csW:int = csShape[0]
+    csH:int = csShape[1]
+    # print(imgTg)
+    return 2 * int(csH / imgTg), csH 
 
 @staticmethod
 def Main() -> None:
@@ -252,32 +277,86 @@ def Main() -> None:
     fileNames:list[str] = getFileNames()
     gen_queueImages:Generator = getImagis(fileNames)
     
+    s:float = 0.1
+    _a:str = asii_4
+    wh = np.array(os.get_terminal_size(), int)
+    
+    duration:int = 5
+    
+    input("Получение данных завершино.\nНажмите 'ENTER' для продолжения...")
+    
+    
     for ind, image in gen_queueImages():
+        _ts_orign:str = f"исходник: {link(fileNames[ind], fileNames[ind].split("/")[-1])}"
+        
         Img, fps = image
         
         if type(Img) is list:
-            imgShow(Img[0])
+            #imgShow(Img[0]/256)
             _ti:list = []
-            bar = IncrementalBar('Countdown', max = len(Img))
             imgSize =  np.array((Img[0].shape[1], Img[0].shape[0]), int)
-            for img in Img:
+            dTFrame:int = 1/fps
+            lenght_ing:int = len(Img)-1
+            # ss:list[str] = []
+            
+            wh = csShape4imgShape(tuple(Img[0].shape), wh)
+            
+            
+            
+            bar = IncrementalBar('Countdown', max = lenght_ing)
+            for img, i in zip(Img, range(lenght_ing)):
                 _img = np.fromfunction(GetMitemRGB, img.shape, dtype=int)
-                temp:np.ndarray = I(I_Img2Qtize(I(img/256+S*_img), 2))
+                cv2.add(img/256, s*_img)
+                temp:np.ndarray = I(I_Img2Qtize(I(np.dot(img, CRevMat)/256+s*_img), 4))
                 
-                temp = cv2.resize(temp, imgSize//2)
-                _ti.append(cv2.resize(temp, imgSize))
+                temp:np.ndarray = cv2.resize(temp, imgSize//2)
+                tempImg:np.ndarray = np.astype(I(cv2.resize(temp, imgSize, interpolation=cv2.INTER_AREA))*255, int)
+                cv2.imwrite(FTEMP + f"out({i}).png", np.dot(tempImg, CRevMat))
+                _ti.append(tempImg)
+                
+                    
+                # imgNoise:np.ndarray = np.fromfunction(GetMitemRGB, img.shape, dtype=int)
+                # tempImg:np.ndarray  = I(I_Img2Qtize(I(img/256+s*imgNoise), 8))
+                
+                # ss.append(translet(tempImg, _a=_a, wh = wh))
+                
                 del temp
                 bar.next()
             bar.finish()
-            del bar
+            bar = IncrementalBar('Countdown', max = lenght_ing)
+            packing2GIF(lenght_ing, bar = bar, duration=int(1/fps))
+            gifShow(_ti, fps)
             
-            test(_ti, fps)
+            # _ts_orign += (lambda hw: f":{hw[0]}x{hw[1]}|{hw[0]/hw[1]};")(Img[0].shape)
+            
+            # print("\033[H\033[J", end="")
+            
+            # i_counter:int = 0
+            # while True:
+            #     i:int = i_counter % lenght_ing
+            #     temp_ts:tuple = (i_counter, i_counter // lenght_ing, (duration / (dTFrame * lenght_ing)))
+            #     _ts:str = f"#{temp_ts[0]} цик; \t {i+1}/{lenght_ing} кадр; \t {temp_ts[1]}//{temp_ts[2]} = {temp_ts[1]//temp_ts[2]}"
+                
+            #     print(_ts_orign + f"\tРазрешение: {wh[1]}x{wh[0]}|{wh[1]/wh[0]};" + "\n"+ f"FPS:{1/dTFrame}\t" + _ts + "\n" + ss[i], flush=True)
+
+            #     with open(FTEMP+f"test({i}).ans", "w+") as f: print( ss[i], file=f, flush=True)
+                
+            #     if temp_ts[1] >= temp_ts[2]:                    
+            #         input("Нажмите 'ENTER' для продолжения...")
+            #         print("\033[H\033[J", end="")
+            #         break
+            #     i_counter+=1
+            #     time.sleep(dTFrame)
+            #     print("\033[H\033[3J", end="", flush=True)
+            
+            
+            
         else:
             img:np.ndarray = img2Sharp(Img/256, 3.0, 5.5, (7,7))
-            
+            imgShow(I(img))
             _img = np.fromfunction(GetMitemRGB, img.shape, dtype=int)
-
-            imgShow(I(I_Img2Qtize(I(img+0.5*_img), 2)))
+            
+            imgShow(I(np.dot(I(I_Img2Qtize(I(cv2.add(img, 0.1*_img)), 2)), MeanMat)))
             
             
         #_img:np.ndarray = cv2.resize(img, (img.shape[0]//10, img.shape[1]//10))
@@ -286,8 +365,8 @@ def Main() -> None:
 
 
 if __name__ == "__main__": 
-    #input("#START")
-    #print("\033[H\033[J", end="")
+    # input("#START")
+    # print("\033[H\033[J", end="")
     Main()
-    #input("Pleas press 'ENTER' to continue...")
-    #input("#END")
+    # input("Pleas press 'ENTER' to continue...")
+    # input("#END")
