@@ -7,7 +7,7 @@ import cv2
 import cv2.data
 import numpy as np  
 
-from ThresholdMap import *  # type: ignore[reportMissingImports] 
+from ThresholdMap import *  
 
 import os
 import os.path as PATH
