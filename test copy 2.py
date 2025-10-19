@@ -358,14 +358,16 @@ def Main(ars = None) -> None:
             print("\033[H\033[J", end="", flush=True)
 
 
+
 if __name__ == "__main__": 
     input("#START")
     print("\033[H\033[J", end="")
     Main()
     #input("Pleas press 'ENTER' to continue...")
-    input("#END")
 
-
+    
+    
+    
 
 SGA:dict[str, str] = {
 "a": "ᔑ",

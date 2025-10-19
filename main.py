@@ -241,7 +241,7 @@ def link(uri, label=None):
 
     # OSC 8 ; params ; URI ST <name> OSC 8 ;; ST 
     escape_mask = '\033]8;{};{}\033\\{}\033]8;;\033\\'
-
+    
     return escape_mask.format(parameters, uri, label)
 
 def imgShow(img:np.ndarray) -> None:
@@ -263,6 +263,15 @@ def gifShow(imgs:list[np.ndarray], fps) -> None:
     plt.show()
 
 def csShape4imgShape(imgShape:tuple[int, int, Any], csShape:tuple[int, int, Any]) ->  tuple[int, int]:
+    """Переводит формат иображение в подходящий формат для консоли 
+
+    Args:
+        imgShape (tuple[int, int, Any]): Размеры изображения 
+        csShape (tuple[int, int, Any]): Размеры консоли
+        
+    Returns:
+        tuple[int, int]: Новый размер изображения
+    """
     imgW:int = imgShape[1]
     imgH:int = imgShape[0]
     imgTg:float = round(imgH/imgW, 2)
@@ -292,63 +301,43 @@ def Main() -> None:
         Img, fps = image
         
         if type(Img) is list:
-            #imgShow(Img[0]/256)
+            
+            imgShow(I(np.abs(Img[0]/256-Img[1]/256)))
+            
             _ti:list = []
             imgSize =  np.array((Img[0].shape[1], Img[0].shape[0]), int)
             dTFrame:int = 1/fps
             lenght_ing:int = len(Img)-1
-            # ss:list[str] = []
             
             wh = csShape4imgShape(tuple(Img[0].shape), wh)
             
             
             
             bar = IncrementalBar('Countdown', max = lenght_ing)
-            for img, i in zip(Img, range(lenght_ing)):
-                _img = np.fromfunction(GetMitemRGB, img.shape, dtype=int)
-                cv2.add(img/256, s*_img)
-                temp:np.ndarray = I(I_Img2Qtize(I(np.dot(img, CRevMat)/256+s*_img), 4))
+            for i in range(lenght_ing):
+                # _img = np.fromfunction(GetMitemRGB, img.shape, dtype=int)
+                # cv2.add(img/256, s*_img)
+                # temp:np.ndarray = I(I_Img2Qtize(I(np.dot(img, CRevMat)/256+s*_img), 4))
                 
-                temp:np.ndarray = cv2.resize(temp, imgSize//2)
-                tempImg:np.ndarray = np.astype(I(cv2.resize(temp, imgSize, interpolation=cv2.INTER_AREA))*255, int)
-                cv2.imwrite(FTEMP + f"out({i}).png", np.dot(tempImg, CRevMat))
-                _ti.append(tempImg)
+                # temp:np.ndarray = cv2.resize(temp, imgSize//2)
+                # tempImg:np.ndarray = np.astype(I(cv2.resize(temp, imgSize, interpolation=cv2.INTER_AREA))*255, int)
+                # cv2.imwrite(FTEMP + f"out({i}).png", np.dot(tempImg, CRevMat))
+                # _ti.append(tempImg)
+
+                shape = np.array((Img[i].shape[1], Img[i].shape[0]), int)//2
                 
-                    
-                # imgNoise:np.ndarray = np.fromfunction(GetMitemRGB, img.shape, dtype=int)
-                # tempImg:np.ndarray  = I(I_Img2Qtize(I(img/256+s*imgNoise), 8))
-                
-                # ss.append(translet(tempImg, _a=_a, wh = wh))
-                
-                del temp
+                temp1:np.ndarray = cv2.resize(Img[i]/256, shape)
+                temp2:np.ndarray = cv2.resize(Img[i-1]/256, shape)
+
+                # cv2.imwrite(FTEMP + f"out({i}).png", np.dot(tempImg , CRevMat))
+                _ti.append(I(np.abs(temp1-temp2)))
                 bar.next()
             bar.finish()
             bar = IncrementalBar('Countdown', max = lenght_ing)
-            packing2GIF(lenght_ing, bar = bar, duration=int(1/fps))
+            # packing2GIF(lenght_ing, bar = bar, duration=int(1/fps))
             gifShow(_ti, fps)
             
-            # _ts_orign += (lambda hw: f":{hw[0]}x{hw[1]}|{hw[0]/hw[1]};")(Img[0].shape)
-            
-            # print("\033[H\033[J", end="")
-            
-            # i_counter:int = 0
-            # while True:
-            #     i:int = i_counter % lenght_ing
-            #     temp_ts:tuple = (i_counter, i_counter // lenght_ing, (duration / (dTFrame * lenght_ing)))
-            #     _ts:str = f"#{temp_ts[0]} цик; \t {i+1}/{lenght_ing} кадр; \t {temp_ts[1]}//{temp_ts[2]} = {temp_ts[1]//temp_ts[2]}"
-                
-            #     print(_ts_orign + f"\tРазрешение: {wh[1]}x{wh[0]}|{wh[1]/wh[0]};" + "\n"+ f"FPS:{1/dTFrame}\t" + _ts + "\n" + ss[i], flush=True)
 
-            #     with open(FTEMP+f"test({i}).ans", "w+") as f: print( ss[i], file=f, flush=True)
-                
-            #     if temp_ts[1] >= temp_ts[2]:                    
-            #         input("Нажмите 'ENTER' для продолжения...")
-            #         print("\033[H\033[J", end="")
-            #         break
-            #     i_counter+=1
-            #     time.sleep(dTFrame)
-            #     print("\033[H\033[3J", end="", flush=True)
-            
             
             
         else:
