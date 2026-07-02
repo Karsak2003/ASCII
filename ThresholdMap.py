@@ -96,3 +96,33 @@ class ThresholdMap:
 			return np.kron(np.ones((2, 2)), ThresholdMap.Mat2N(n//2)) + np.kron(ThresholdMap.Mat_2, np.ones((n//2, n//2)))/((n/2)**2)
 		else:
 			return ThresholdMap.Mat_2
+
+SGA:dict[str, str] = {
+"a": "ᔑ",
+"b": "ʖ",
+"c": "ᓵ",
+"d": "↸",
+"e": "ᒷ",
+"f": "⎓",
+"g": "⊣",
+"h": "⍑",
+"я": "╎",
+"j": "⋮",
+"k": "ꖌ",
+"l": "ꖎ",
+"m": "ᒲ",
+"n": "リ",
+"o": "𝙹",
+"p": "⇅",
+"q": "ᑑ",
+"r": "∷",
+"s": "ᓭ",
+"t": "ℸ",
+"u": "⚍",
+"v": "⍊",
+"w": "∴",
+"x": "/",
+"y": "|",
+"z": "⨅",
+}
+"""Standard Galactic Alphabet"""

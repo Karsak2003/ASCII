@@ -7,8 +7,8 @@ import cv2
 import cv2.data
 import numpy as np  
 
-from ThresholdMap import *  
-
+from ThresholdMap import *  # type: ignore[reportMissingImports] 
+ 
 import os
 import os.path as PATH
 from PIL import Image
@@ -21,8 +21,12 @@ from matplotlib.figure import Figure
 from matplotlib.axes import Axes 
 import matplotlib.animation as animation
 
+# from PySide6 import QtWidgets, QtCore, QtGui
+
 from tkinter import filedialog as tk_filedialog
 #endregion IMPORT
+
+#region Const
 
 #__________________________________________________________________________________
 asii = """$@B%8&WM*oahkbdpqwmZO0QLCJUYXzcvunxrjft/\\|()1{}[]?-_+~<>i!lI;:,"^`'."""
@@ -39,16 +43,23 @@ asii_3 = r" .',:`;\"i!I^lr1vjcx<>Yft*JL?T7uynozaksFVXeh3Cq2KUdp4SZbA0w5GPg9EOH6m
 asii_3v = r" .',:`;\"i!I^lrvjcx<>Yft*JL?TuynozaksFVXehCqKUdpSZbAwGPgEOHmDQNR%&BWM#@$"
 #‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾
 #__________________________________________________________________________________
-asii_4 = r" .;coPO?@▮"
+asii_4 = r" .;coPO?@#"
 #‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾
 
 
 CWD = os.getcwd()
 FRESU = CWD + "\\~resu\\"
 FTEMP = CWD + "\\~temp\\"
+# K:int = 8
+S:float = 0.5
 ESCCLEANER:str = "\033[0m"
 
-I = lambda _i: (lambda x: x/np.max(x))((lambda x: x - np.min(x))(_i))
+# def Mat2N(n:int) -> np.ndarray:
+#     assert not(n%2) and (type(n) is int)
+#     if n > 2:
+#         return np.kron(np.ones((2, 2)), Mat2N(n//2)) + np.kron(Mat2, np.ones((n//2, n//2)))/((n/2)**2)
+#     else:
+#         return Mat2
 
 #region Matrix
 kernel2 = np.ones((5, 5), np.float32)/25
@@ -65,6 +76,7 @@ MeanMat2Blue:np.ndarray     = np.array([[0, 0, 1/3],[0, 0, 1/3],[0, 0, 1/3]])
 MeanMat2RGB:np.ndarray      = np.array([[1/3, 1/3, 1/3],[1/3, 1/3, 1/3],[1/3, 1/3, 1/3]])
 MeanMat2:np.ndarray         = np.array([[1/3, 1/3, 1/3],[0, 0, 0],[0, 0, 0]])
 #endregion Matrix
+#endregion Const
 
 #region IMG2
 img2gray        = lambda x: cv2.cvtColor(x, cv2.COLOR_BGR2GRAY)
@@ -84,54 +96,68 @@ def img2Angle(x:np.ndarray):
     GxImg_:np.ndarray = img2filter2D(x, a=Gx)
     GyImg_:np.ndarray = img2filter2D(x, a=Gy)
     contur:np.ndarray = (np.arctan(GyImg_/GxImg_)/np.pi + 1) * 0.5
-    return contur
+    return contur 
 
-def img2ConsoleImg(image:np.ndarray, _a:str, w:int, h:int, *, s:float = 0.5):
-    global ESCCLEANER   
+def img2ConsoleImg(image:np.ndarray, _a:str, w:int, h:int) -> np.ndarray[str]:
+    """Преобразует изображение в массив строк цветного ASCII-арта с ANSI-кодами.
     
-    tempImg:np.ndarray  = I(cv2.resize(image, (w, h)))
+    Масштабирует изображение до (w, h), квантует яркость для выбора символа из `_a`,
+    а цвет пикселя кодирует через escape-последовательности `\\033[38;2;r;g;bm.`
+
+    Args:
+        image (np.ndarray): Исходное изображение в формате BGR (numpy.ndarray).
+        _a (str): Строка символов палитры яркости (от тёмного к светлому).
+        w (int): Целевая ширина вывода в символах.
+        h (int): Целевая высота вывода в символах.
+
+    Returns:
+        np.ndarray[str]: Массив строк, где каждый элемент — строка ANSI-последовательности.
+    """
+    global ESCCLEANER
+    tempImg:np.ndarray = cv2.resize(image, (w, h))
     
-    
-    tempImgGray:np.ndarray = np.dot(tempImg, MeanMat)
+    tempImgGray:np.ndarray = I_Img2quantize(img2gray(tempImg)/255, 1/(len(_a)-1))
     temp_f = np.vectorize(lambda x, y: _a[int(tempImgGray[x][y]//(1/(len(_a)-1))-1)])
+    # temp_f = np.vectorize(lambda x, y: _a[::-1][int(tempImgGray[x][y]//(1/(len(_a)-1))-1)])
     ss = np.fromfunction(temp_f, tempImgGray.shape, dtype=int)
     del tempImgGray, temp_f
+    
+    tempImg_:np.ndarray = I_Img2quantize(tempImg/255, 1/(len(_a)-1)) 
 
-    tempImg_:np.ndarray = np.astype(tempImg*256, int)    
+    tempImg_ -= tempImg_.min()
+    tempImg_ /= tempImg_.max()
+    tempImg_ =  tempImg_ * 255
+    
+    tempImg_ = np.astype(tempImg_, int)    
     
     _w, _h, _ = tempImg_.shape    
     
-    @np.vectorize
-    def f(x:int, y:int) -> str:
-        r:str = str(tempImg_[x][y][0])
-        g:str = str(tempImg_[x][y][1])
-        b:str = str(tempImg_[x][y][2]) 
-        return ";".join((r, g, b))
+
+    paletteFond:list[str] = list(set(getPalette(tempImg_)))
     
-    t:np.ndarray = np.fromfunction(f, (_w, _h), dtype=int)
-    _t:list = []
-    for i in t.tolist():_t += i
-    palette:list[str] = list(set(_t))
-    
-    del t, _t, f
+    paletteBack:list[str] = list(set(getPalette(tempImg_, scale=4)))
     
     @np.vectorize
     def f(x:int, y:int):
         r:str = str(tempImg_[x][y][0])
         g:str = str(tempImg_[x][y][1])
         b:str = str(tempImg_[x][y][2]) 
-        return palette.index(";".join((r, g, b)))
+        return paletteFond.index(";".join((r, g, b)))
     tempImg_:np.ndarray = np.fromfunction(f, (_w, _h), dtype=int)
     
     @np.vectorize
     def temp_f(x:int, y:int):
         if y:
             if tempImg_[x][y] != tempImg_[x][y-1]:
-                return "\033[38;2;" + palette[tempImg_[x][y]] + "m"
+                #return "\033[48;2;" + paletteFond[tempImg_[x][y]] + "m" + "\033[30m"
+                # return "\033[48;2;" + paletteBack[tempImg_[x][y]] + "m" + "\033[38;2;" + paletteFond[tempImg_[x][y]] + "m"
+                return "\033[38;2;" + paletteFond[tempImg_[x][y]] + "m"
             else:
                 return ""
         else:
-            return "\033[38;2;" + palette[tempImg_[x][y]] + "m"
+            # return "\033[48;2;" + paletteFond[tempImg_[x][y]] + "m" + "\033[30m"
+            # return "\033[48;2;" + paletteBack[tempImg_[x][y]] + "m" + "\033[38;2;" + paletteFond[tempImg_[x][y]] + "m"
+            return "\033[38;2;" + paletteFond[tempImg_[x][y]] + "m" 
     
     ss_ = np.fromfunction(temp_f, (_w, _h), dtype=int)
     del tempImg_, temp_f, f
@@ -144,31 +170,64 @@ def img2ConsoleImg(image:np.ndarray, _a:str, w:int, h:int, *, s:float = 0.5):
 
 Img2quantize    = lambda x, h: (np.ceil(x/h) + 0.5)*h                                   
 I_Img2quantize  = lambda x, k: np.ceil(x/k + 0.5)*k
-I_Img2Qtize     = lambda x, k: np.ceil(x*(k-1) + 0.5)/(k-1)
-img2filter2D    = lambda x, a=kernel2: cv2.filter2D(src=x, ddepth=-1, kernel=a) 
-
+img2filter2D    = lambda x, a=kernel2: cv2.filter2D(src=x, ddepth=-1, kernel=a)
 #endregion IMG2
 
 Sigmoid = lambda x: 1/(1 + np.e**(-x))
 
 @np.vectorize
 def GetMitemRGB(i:int, j:int, fi:int) -> float: 
-    m:np.ndarray = ThresholdMap.Mat_16
-    k:int = len(m)
-    return  (m[i%k][j%k] - 0.5)
+    m:np.ndarray = ThresholdMap.Mat_8
+    k:np.ndarray = len(m)
+    return  S*(m[i%k][j%k] - 0.5)
 @np.vectorize
-def GetMitem(i:int, j:int) -> float:
-    m:np.ndarray = ThresholdMap.Mat_16
-    k:int = len(m) 
-    return  (m[(i)%k][(j)%k] - 0.5)
+def GetMitem(i:int, j:int) -> float: 
+    m:np.ndarray = ThresholdMap.Mat_8
+    k:np.ndarray = len(m)
+    return  S*(m[(i)%k][(j)%k] - 0.5)
 
-def img2Sharp(image:np.ndarray, sigma=1.0, strength=1.5, kernel_size=(5, 5)):
+def getPalette(tempImg_:np.ndarray, *, scale:int=1) -> list[int]:
+    """
+    Извлекает уникальные RGB-значения из изображения в формате "R;G;B".
     
-    blurred = cv2.GaussianBlur(image, kernel_size, sigma)
+    Args:
+        tempImg_: массив изображения `shape(H, W, 3)` с int значениями
+        
+    Returns:
+        list[str]: плоский список строк вида "R;G;B"
+    """    
+    r:np.ndarray = (tempImg_[:, :, 0]//scale).astype(str)
+    g:np.ndarray = (tempImg_[:, :, 1]//scale).astype(str)
+    b:np.ndarray = (tempImg_[:, :, 2]//scale).astype(str)
     
-    sharpened = cv2.addWeighted(image, 1.0 + strength, blurred, -strength, 0)
+    t:np.ndarray = np.char.add( np.char.add( np.char.add( np.char.add(r, ';'), g),  ';'), b)
+
+    return t.flatten().tolist()
+
+def SelectContour(image:np.ndarray, size, *, x = 0.75) -> tuple[str, np.ndarray]:
+    new_size:np.ndarray[int] = np.array((size[0], size[1]), dtype=int)
     
-    return sharpened
+    temp:np.ndarray = I_Img2quantize(img2gray(image)/255, 1/(2**8))
+    
+    temp_contur:np.ndarray = np.where(DoG(temp, 5, 7/5, 0.95) >=x, 1.0, 0.)
+    temp_contur-=temp_contur.min()
+    temp_contur/=temp_contur.max()
+    
+    contur:np.ndarray = I_Img2quantize(img2Angle(temp_contur), 1/8)
+    contur:np.ndarray = (2*contur-1) * 180
+    contur:np.ndarray = np.where(contur < 0, contur + 180, contur)
+    
+    out_contur:np.ndarray = cv2.resize(np.abs(contur//45), new_size)
+    stroca:np.ndarray[str] = np.empty(out_contur.shape, str)
+
+    del contur, temp_contur, temp, x
+    
+    @np.vectorize
+    def translation2symbols(i:int, j:int):
+        x:int = out_contur[i][j]
+        return ["\\", "|", "/", "_"][int(x)] if not np.isnan(x) else " "
+    stroca = np.fromfunction(translation2symbols, out_contur.shape, dtype=int)
+    return "\n".join(["".join(s) for s in stroca]), out_contur
 
 def DoG(image:np.ndarray, kSize:int, rSize:float, teta:float = 1., *, sigmaX_1:float=0., sigmaX_2:float=0.) -> np.ndarray:
     assert kSize%2 and rSize > 0
@@ -176,13 +235,25 @@ def DoG(image:np.ndarray, kSize:int, rSize:float, teta:float = 1., *, sigmaX_1:f
     ksize_hight = np.int_(ksize_low*max(rSize, 1/rSize))
     return (1 + teta)*cv2.GaussianBlur(image, ksize_low, sigmaX_1) - teta*cv2.GaussianBlur(image, ksize_hight, sigmaX_2)
 
-def translet(image:np.ndarray, fileout:str = "out.txt", *, _a:Iterable | str = asii_1, wh = tuple(os.get_terminal_size()), s:float = 0.5) -> str:    
+def translet(image:np.ndarray, fileout:str = "out.txt", *, _a:Iterable | str = asii_1, wh = tuple(os.get_terminal_size())) -> str:    
     w, h = wh
     # strings = img2ConsoleImg(image, _a, w, h)
-    strings = img2ConsoleImg(image, _a, w, h, s=s)
+    strings = img2ConsoleImg(image, _a, w, h)
     return "\n".join(["".join(s) for s in strings.tolist()])
 
-def f_csShape4imgShape(imgShape:tuple[int, int, Any], csShape:tuple[int, int, Any]) ->  tuple[int, int]:
+def csShape4imgShape(imgShape:tuple[int, int, Any], csShape:tuple[int, int, Any]) ->  tuple[int, int]:
+    """Рассчитывает размеры области консоли для вывода ASCII-арта с сохранением пропорций изображения.
+
+    Компенсирует прямоугольную форму символов терминала (множитель 2 для ширины)
+    и адаптирует ширину вывода под заданную высоту консоли.
+
+    Args:
+        imgShape (tuple[int, int, Any]): Кортеж размеров исходного изображения (высота, ширина, каналы).
+        csShape (tuple[int, int, Any]): Кортеж целевых размеров консоли (ширина, высота).
+
+    Returns:
+        tuple[int, int]: Кортеж (ширина, высота) для корректного отображения изображения в консоли.
+    """
     imgW:int = imgShape[1]
     imgH:int = imgShape[0]
     imgTg:float = round(imgH/imgW, 2)
@@ -211,28 +282,13 @@ def getImagis(fileNames:list[str]):
                 cap:cv2.VideoCapture = cv2.VideoCapture(fileName)
                 cap_len:int = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
                 cap_FPS:float = (cap.get(cv2.CAP_PROP_FPS))
-                result:list[np.ndarray] = [cap.read()[1] for _ in range(cap_len)]
+                result:list[np.ndarray] = [img2CRev(cap.read()[1]) for _ in range(cap_len)]
                 t:tuple = (result, cap_FPS)
                 cap.release()
                 yield (ind, t)
     return sel
 
-def packing2GIF(lenFrames:int, frames:list[Image.Image] = [], fileout:str=FTEMP + "out", *, bar:IncrementalBar = None, duration:int = 100) ->  None:
-    for i in range(lenFrames):
-        with Image.open(fileout+f"({i}).png") as frame: 
-            frames.append(frame.copy())
-        os.remove(fileout+f"({i}).png")
-        bar.next()
-    frames[0].save(
-                fileout + '.gif',
-                save_all=True,
-                append_images=frames[1:],  # Срез который игнорирует первый кадр.
-                optimize=True,
-                duration=duration,
-                loop=0
-            )
-    frames.clear()
-    bar.finish
+
 
 def link(uri, label=None):
     if label is None: 
@@ -241,121 +297,92 @@ def link(uri, label=None):
 
     # OSC 8 ; params ; URI ST <name> OSC 8 ;; ST 
     escape_mask = '\033]8;{};{}\033\\{}\033]8;;\033\\'
-    
+
     return escape_mask.format(parameters, uri, label)
 
-def imgShow(img:np.ndarray) -> None:
-    
-    plt.imshow(img)
-    plt.show()
-    
-    pass
-
-def gifShow(imgs:list[np.ndarray], fps) -> None:
-    fig, ax = plt.subplots()    
-    
-    art = []
-    
-    for img in imgs:
-        cont = ax.imshow(img)
-        art.append([cont])
-    ani = animation.ArtistAnimation(fig=fig, artists=art, interval= np.ceil(1000/fps))
-    plt.show()
-
-def csShape4imgShape(imgShape:tuple[int, int, Any], csShape:tuple[int, int, Any]) ->  tuple[int, int]:
-    """Переводит формат иображение в подходящий формат для консоли 
-
-    Args:
-        imgShape (tuple[int, int, Any]): Размеры изображения 
-        csShape (tuple[int, int, Any]): Размеры консоли
-        
-    Returns:
-        tuple[int, int]: Новый размер изображения
-    """
-    imgW:int = imgShape[1]
-    imgH:int = imgShape[0]
-    imgTg:float = round(imgH/imgW, 2)
-    csW:int = csShape[0]
-    csH:int = csShape[1]
-    # print(imgTg)
-    return 2 * int(csH / imgTg), csH 
 
 @staticmethod
-def Main() -> None:
+def Main(ars = None, *, _a = asii_3v) -> None:
     
     fileNames:list[str] = getFileNames()
-    gen_queueImages:Generator = getImagis(fileNames)
+    gen_queueImages:Generator[tuple[int, tuple[np.ndarray, None]], tuple[int, tuple[list[np.ndarray], float]]] = getImagis(fileNames)()
+
+    wh = tuple(os.get_terminal_size())
     
-    s:float = 0.1
-    _a:str = asii_4
-    wh = np.array(os.get_terminal_size(), int)
-    
+    dTFrame:int = 1/60#second
     duration:int = 5
-    
+    print(wh)
     input("Получение данных завершино.\nНажмите 'ENTER' для продолжения...")
+    # print(f"\033[8;{wh[1]+5};{wh[0]+5}")
     
     
-    for ind, image in gen_queueImages():
+    for ind, image in gen_queueImages:
+        # _ts_orign:str = f"исходник: <a href=\"{fileNames[ind]}\">{fileNames[ind].split("/")[-1]}</a>"
         _ts_orign:str = f"исходник: {link(fileNames[ind], fileNames[ind].split("/")[-1])}"
+        img, fps = image
         
-        Img, fps = image
-        
-        if type(Img) is list:
-            
-            imgShow(I(np.abs(Img[0]/256-Img[1]/256)))
-            
-            _ti:list = []
-            imgSize =  np.array((Img[0].shape[1], Img[0].shape[0]), int)
+        if type(img) is list:
+                        
+            images:list[np.ndarray] = img
+            lenght_ing:int = len(images) 
+            ss:list[str] = []
             dTFrame:int = 1/fps
-            lenght_ing:int = len(Img)-1
             
-            wh = csShape4imgShape(tuple(Img[0].shape), wh)
-            
-            
+            wh = csShape4imgShape(tuple(images[0].shape), wh)
             
             bar = IncrementalBar('Countdown', max = lenght_ing)
             for i in range(lenght_ing):
-                # _img = np.fromfunction(GetMitemRGB, img.shape, dtype=int)
-                # cv2.add(img/256, s*_img)
-                # temp:np.ndarray = I(I_Img2Qtize(I(np.dot(img, CRevMat)/256+s*_img), 4))
-                
-                # temp:np.ndarray = cv2.resize(temp, imgSize//2)
-                # tempImg:np.ndarray = np.astype(I(cv2.resize(temp, imgSize, interpolation=cv2.INTER_AREA))*255, int)
-                # cv2.imwrite(FTEMP + f"out({i}).png", np.dot(tempImg, CRevMat))
-                # _ti.append(tempImg)
-
-                shape = np.array((Img[i].shape[1], Img[i].shape[0]), int)//2
-                
-                temp1:np.ndarray = cv2.resize(Img[i]/256, shape)
-                temp2:np.ndarray = cv2.resize(Img[i-1]/256, shape)
-
-                # cv2.imwrite(FTEMP + f"out({i}).png", np.dot(tempImg , CRevMat))
-                _ti.append(I(np.abs(temp1-temp2)))
                 bar.next()
+                ss.append(translet(images[i], fileout=f"out({ind})({i}).txt", _a=_a, wh = wh))
+                # ss.append(SelectContour(images[i], size=wh)[0])
             bar.finish()
-            bar = IncrementalBar('Countdown', max = lenght_ing)
-            # packing2GIF(lenght_ing, bar = bar, duration=int(1/fps))
-            gifShow(_ti, fps)
+            del bar
             
+            _ts_orign += (lambda hw: f":{hw[0]}x{hw[1]}|{hw[0]/hw[1]};")(images[0].shape)
+            
+            print("\033[H\033[J", end="")
+            
+            i_counter:int = 0
+            while True:
+                i:int = i_counter % lenght_ing
+                temp_ts:tuple = (i_counter, i_counter // lenght_ing, (duration / (dTFrame * lenght_ing)))
+                _ts:str = f"#{temp_ts[0]} цик; \t {i+1}/{lenght_ing} кадр; \t {temp_ts[1]}//{temp_ts[2]} = {temp_ts[1]//temp_ts[2]}"
+                
+                print(_ts_orign + f"\tРазрешение: {wh[1]}x{wh[0]}|{wh[1]/wh[0]};" + "\n"+ f"FPS:{1/dTFrame}\t" + _ts + "\n" + ss[i], flush=True)
 
-            
-            
+                with open(FTEMP+f"test({i}).ans", "w+") as f: print( ss[i], file=f, flush=True)
+                
+                if temp_ts[1] >= temp_ts[2]:                    
+                    input("Нажмите 'ENTER' для продолжения...")
+                    print("\033[H\033[J", end="")
+                    break
+                i_counter+=1
+                time.sleep(dTFrame)
+                print("\033[H\033[3J", end="", flush=True)
         else:
-            img:np.ndarray = img2Sharp(Img/256, 3.0, 5.5, (7,7))
-            imgShow(I(img))
-            _img = np.fromfunction(GetMitemRGB, img.shape, dtype=int)
+            print("\033[H\033[J", end="")
+            wh = csShape4imgShape(tuple(img.shape), wh)
+            _ts_orign += (lambda wh: f":{wh[1]}x{wh[0]}|{wh[0]/wh[1]};")(img.shape)
             
-            imgShow(I(np.dot(I(I_Img2Qtize(I(cv2.add(img, 0.1*_img)), 2)), MeanMat)))
+            print(_ts_orign + f"\tРазрешение: {wh[0]}x{wh[1]}|{wh[1]/wh[0]};")
+            _s:str = translet(img, fileout=f"out({ind}).txt", _a=_a, wh=wh)
+            print(_s, flush=True)
+            with open(FTEMP+f"test_.ans", "w+") as f: print( _s, file=f, flush=True)
             
-            
-        #_img:np.ndarray = cv2.resize(img, (img.shape[0]//10, img.shape[1]//10))
-        #imgShow(cv2.resize(_img, (img.shape[1], img.shape[0])))
-        
+            input("Нажмите 'ENTER' для продолжения...")
+            # time.sleep(1)
+            print("\033[H\033[J", end="", flush=True)
+
 
 
 if __name__ == "__main__": 
-    # input("#START")
-    # print("\033[H\033[J", end="")
-    Main()
-    # input("Pleas press 'ENTER' to continue...")
-    # input("#END")
+    input("#START")
+    print("\033[H\033[J", end="")
+    Main(_a=asii_3v)
+    print("\033[H\033[3J", end="", flush=True)
+    input("Pleas press 'ENTER' to continue...")
+
+    
+    
+    
+
