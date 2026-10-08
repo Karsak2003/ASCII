@@ -1,7 +1,2 @@
 __pycache__/
 *.pyc
-\.venv
-\ascii_art_lib.egg-info
-
-*.gitignore
-.gitignore

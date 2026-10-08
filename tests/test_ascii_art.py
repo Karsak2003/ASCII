@@ -210,3 +210,99 @@ def test_cli_animation_to_files(tmp_gif, tmp_path):
     files = sorted(os.listdir(d))
     assert len(files) >= 2
     assert all(f.endswith(".txt") for f in files)
+
+
+# ---------------------------------------------------------------------------
+# Контурная детекция, реверс палитры, цветовой охват от палитры
+# ---------------------------------------------------------------------------
+
+@pytest.fixture()
+def shapes_png(tmp_path):
+    """Изображение с чёткими геометрическими краями (тесты контуров)."""
+    img = np.zeros((300, 400, 3), np.uint8)
+    cv2.circle(img, (150, 150), 80, (0, 0, 255), -1)
+    cv2.rectangle(img, (250, 50), (380, 220), (0, 255, 0), -1)
+    path = str(tmp_path / "shapes.png")
+    cv2.imwrite(path, img)
+    return path
+
+
+def test_detect_edges_returns_line_map(shapes_png):
+    from ascii_art_lib import detect_edges
+
+    frame = cv2.imread(shapes_png)
+    edges = detect_edges(frame, method="canny", blur_ksize=0)
+    assert edges.shape == (300, 400) and edges.dtype == np.uint8
+    vals = set(np.unique(edges).tolist())
+    assert vals <= {0, 255}
+    assert (edges == 255).sum() > 0  # линии найдены
+
+
+def test_edge_detector_class_and_apply():
+    from ascii_art_lib import EdgeDetector
+
+    frame = np.zeros((100, 100, 3), np.uint8)
+    cv2.rectangle(frame, (20, 20), (80, 80), (255, 255, 255), 2)
+    det = EdgeDetector(method="sobel", low_threshold=30)
+    lines = det.apply(frame, mode="lines")
+    assert lines.max() == 255 and lines.min() == 0
+    overlay = det.apply(frame, mode="overlay")
+    assert overlay.shape == frame.shape
+    with pytest.raises(ValueError):
+        EdgeDetector(method="laplace")
+
+
+def test_convert_image_with_edges(shapes_png):
+    plain = convert_image(shapes_png, size=(60, 20), fullcolor=False)
+    edge_art = convert_image(shapes_png, size=(60, 20), fullcolor=False, edges=True)
+    assert edge_art != plain
+    # в режиме «линий» артефакт разрежен: меньше непустых символов, чем у заливок
+    nb = lambda t: sum(1 for c in t if c not in " \n")
+    assert 0 < nb(edge_art) < nb(plain)
+    # контуры + цвет + overlay — всё вместе не падает и даёт ANSI
+    color_overlay = convert_image(
+        shapes_png, size=(60, 20), fullcolor=True, edges="sobel", edge_mode="overlay"
+    )
+    assert "\033[38;2;" in color_overlay
+
+
+def test_convert_animation_with_edges(tmp_gif):
+    frames = list(convert_animation(tmp_gif, size=(40, 12), fullcolor=False, edges=True))
+    assert len(frames) >= 1
+    assert all(isinstance(f, str) for f in frames)
+
+
+def test_reverse_palette_changes_output(shapes_png):
+    a = convert_image(shapes_png, size=(60, 20), palette="asii_4", fullcolor=False)
+    b = convert_image(shapes_png, size=(60, 20), palette="asii_4", fullcolor=False,
+                      reverse_palette=True)
+    assert a != b
+    # Реверс на уровне get_palette — точное зеркало строки
+    from ascii_art_lib.palettes import get_palette
+    assert get_palette("asii_4", reverse=True) == get_palette("asii_4")[::-1]
+
+
+def test_color_levels_follow_palette(shapes_png):
+    """Без явного color_levels охват зависит от размера палитры."""
+    import re
+
+    def uniq_colors(text):
+        return set(re.findall(r"38;2;\d+;\d+;\d+", text))
+
+    poor = uniq_colors(convert_image(shapes_png, size=(60, 20), palette="asii_4"))
+    rich = uniq_colors(convert_image(shapes_png, size=(60, 20), palette="asii"))
+    assert len(rich) > len(poor)  # богатая палитра -> шире охват
+
+    # Явный color_levels переопределяет зависимость от палитры
+    forced = uniq_colors(convert_image(shapes_png, size=(60, 20), palette="asii_4",
+                                       color_levels=64))
+    assert len(forced) > len(poor)
+
+
+def test_cli_edges_and_reverse_flags(shapes_png, tmp_path):
+    from ascii_art_lib.cli import run
+
+    out = str(tmp_path / "e.txt")
+    rc = run([shapes_png, "--size", "60x20", "--no-color", "--edges", "sobel",
+              "--edge-mode", "overlay", "-r", "--no-print", "--save", out])
+    assert rc == 0 and os.path.isfile(out)

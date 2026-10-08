@@ -20,7 +20,13 @@ from typing import Iterable, List, Optional, Tuple
 import cv2
 import numpy as np
 
-from .palettes import DEFAULT_PALETTE, build_lut, get_palette, is_ascii_palette
+from .palettes import (
+    DEFAULT_PALETTE,
+    build_lut,
+    get_palette,
+    is_ascii_palette,
+    palette_color_levels,
+)
 
 # ANSI-константы
 ANSI_RESET = "\033[0m"
@@ -47,6 +53,8 @@ def frame_to_symbols(
     frame: np.ndarray,
     palette: str = DEFAULT_PALETTE,
     size: Optional[Tuple[int, int]] = None,
+    *,
+    reverse_palette: bool = False,
 ) -> np.ndarray:
     """Конвертирует BGR-кадр в 2D-массив **символов яркости** (dtype='<U1' или str).
 
@@ -54,11 +62,10 @@ def frame_to_symbols(
         frame: Изображение BGR uint8 (H, W, 3) или grayscale (H, W).
         palette: Строка-палитра (от тёмных символов к светлым) либо её имя.
         size: Целевой размер ``(w, h)``; если ``None`` — используется размер кадра.
-
-    Returns:
-        np.ndarray формы (h, w) со строками-символами.
+        reverse_palette: Перевернуть палитру (светлые символы будут соответствовать
+            тёмным участкам изображения и наоборот).
     """
-    pal = get_palette(palette)
+    pal = get_palette(palette, reverse=reverse_palette)
     n = len(pal)
 
     if size is not None and (frame.shape[1], frame.shape[0]) != tuple(size):
@@ -101,7 +108,8 @@ def frame_to_color_ansi(
     palette: str = DEFAULT_PALETTE,
     size: Optional[Tuple[int, int]] = None,
     *,
-    color_levels: int = 16,
+    color_levels: Optional[int] = None,
+    reverse_palette: bool = False,
     reset: str = ANSI_RESET,
 ) -> str:
     """Конвертирует BGR-кадр в **цветной** ASCII-арта с ANSI truecolor-кодами.
@@ -118,17 +126,24 @@ def frame_to_color_ansi(
         frame: BGR uint8 (H, W, 3).
         palette: Палитра символов яркости.
         size: Целевой ``(w, h)`` в символах.
-        color_levels: Число уровней квантования на канал (по умолчанию 16 — визуально
-            достаточно и сильно экономит память/вывод).
+        color_levels: Уровней квантования на канал. ``None`` — охват выводится
+            из размера палитры (:func:`~ascii_art_lib.palettes.palette_color_levels`):
+            бедная палитра -> узкий цветовой охват, богатая -> широкий.
+        reverse_palette: Перевернуть палитру перед конвертацией.
         reset: Escape-последовательность сброса цвета в конце строки.
 
     Returns:
         Готовая строка ANSI-арта (с переводами строк).
     """
+    pal = get_palette(palette, reverse=reverse_palette)
+    if color_levels is None:
+        color_levels = palette_color_levels(pal)
+    color_levels = max(1, min(256, int(color_levels)))
+
     if size is not None and (frame.shape[1], frame.shape[0]) != tuple(size):
         frame = cv2.resize(frame, tuple(int(v) for v in size), interpolation=cv2.INTER_AREA)
 
-    sym = frame_to_symbols(frame, palette)          # 1D массив строк-рядов (h,)
+    sym_rows = frame_to_symbols(frame, pal).tolist()  # list[str] — по одной строке на ряд
 
     # Квантование цвета: 256 -> color_levels равномерных шагов
     q = max(1, 256 // color_levels)
@@ -155,7 +170,6 @@ def frame_to_color_ansi(
         )
     )
 
-    sym_rows = sym.tolist()      # list[str] — по одной строке на ряд
     cid_list = cid.tolist()      # list[list[int]]
     chg_list = change.tolist()   # list[list[bool]]
     out_lines: List[str] = []
@@ -184,7 +198,9 @@ def frame_to_mono_text(
     frame: np.ndarray,
     palette: str = DEFAULT_PALETTE,
     size: Optional[Tuple[int, int]] = None,
+    *,
+    reverse_palette: bool = False,
 ) -> str:
     """Чёрно-белый ASCII-арт (без ANSI) — самый лёгкий по памяти режим."""
-    sym = frame_to_symbols(frame, palette, size)
+    sym = frame_to_symbols(frame, palette, size, reverse_palette=reverse_palette)
     return symbols_to_text(sym)

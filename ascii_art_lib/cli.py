@@ -41,13 +41,27 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("inputs", nargs="+", help="Файлы: изображения (png/jpg/webp…) или анимации (gif/mp4/avi…)")
     p.add_argument("--palette", "-p", default=DEFAULT_PALETTE,
                    help=f"Имя палитры ({', '.join(PALETTES)}) или своя строка символов.")
+    p.add_argument("--reverse-palette", "-r", action="store_true", dest="reverse_palette",
+                   help="Перевернуть палитру (свет/тень символами наоборот).")
     p.add_argument("--size", "-s", type=_parse_size, default=None, metavar="WxH",
                    help="Размер вывода в символах, напр. 120x40. По умолчанию — авто под терминал.")
     p.add_argument("--no-color", dest="color", action="store_false", default=True,
                    help="Монохромный режим (без ANSI-цветов).")
-    p.add_argument("--color-levels", type=int, default=16, metavar="N",
-                   help="Уровней квантования на цветовой канал (по умолчанию 16).")
+    p.add_argument("--color-levels", type=int, default=None, metavar="N",
+                   help="Уровней квантования на цветовой канал. "
+                        "По умолчанию выводится из размера палитры.")
     p.add_argument("--invert", "-i", action="store_true", help="Инвертировать яркость.")
+    p.add_argument("--edges", nargs="?", const="canny", default=None, metavar="METHOD",
+                   choices=["canny", "sobel"],
+                   help="Выделение контуров перед конвертацией (canny по умолчанию либо sobel).")
+    p.add_argument("--edge-mode", default="lines", choices=["lines", "overlay"],
+                   help="Режим контуров: 'lines' — только линии, 'overlay' — поверх оригинала.")
+    p.add_argument("--edge-low", type=int, default=50, metavar="N",
+                   help="Нижний порог детекции контуров (по умолчанию 50).")
+    p.add_argument("--edge-high", type=int, default=150, metavar="N",
+                   help="Верхний порог детекции контуров (по умолчанию 150).")
+    p.add_argument("--edge-blur", type=int, default=5, metavar="K",
+                   help="Размер гауссова ядра перед детекцией контуров (0 — выключить).")
     p.add_argument("--max-pixels", type=int, default=32_000_000, metavar="PX",
                    help="Лимит площади входного кадра для экономии RAM (0 = без лимита).")
     p.add_argument("--fps", type=float, default=None,
@@ -97,6 +111,22 @@ def run(argv: Optional[List[str]] = None) -> int:
 
     do_print = args.do_print if args.do_print is not None else (args.save is None)
 
+    # Общие параметры конвертации (для картинок и анимаций)
+    common = dict(
+        palette=args.palette,
+        reverse_palette=args.reverse_palette,
+        size=args.size,
+        fullcolor=args.color,
+        color_levels=args.color_levels,
+        invert=args.invert,
+        max_pixels=max_pixels,
+        edges=args.edges,
+        edge_mode=args.edge_mode,
+        low_threshold=args.edge_low,
+        high_threshold=args.edge_high,
+        blur_ksize=args.edge_blur,
+    )
+
     rc = 0
 
     # ---- Анимации -----------------------------------------------------------
@@ -107,26 +137,12 @@ def run(argv: Optional[List[str]] = None) -> int:
                     path,
                     fps=args.fps,
                     duration=args.duration,
-                    palette=args.palette,
-                    size=args.size,
-                    fullcolor=args.color,
-                    color_levels=args.color_levels,
-                    invert=args.invert,
-                    max_pixels=max_pixels,
                     save_dir=args.save if args.save else None,
                     progress=args.progress,
+                    **common,
                 )
             else:
-                frames = convert_animation(
-                    path,
-                    palette=args.palette,
-                    size=args.size,
-                    fullcolor=args.color,
-                    color_levels=args.color_levels,
-                    invert=args.invert,
-                    max_pixels=max_pixels,
-                    progress=args.progress,
-                )
+                frames = convert_animation(path, progress=args.progress, **common)
                 if do_print:
                     for text in frames:
                         sys.stdout.write("\033[H\033[J")
@@ -151,15 +167,7 @@ def run(argv: Optional[List[str]] = None) -> int:
     n_img = len(images)
     for idx, (path, info) in enumerate(images, start=1):
         try:
-            text = convert_image(
-                path,
-                palette=args.palette,
-                size=args.size,
-                fullcolor=args.color,
-                color_levels=args.color_levels,
-                invert=args.invert,
-                max_pixels=max_pixels,
-            )
+            text = convert_image(path, **common)
             if do_print:
                 print(text)
             if args.save:
