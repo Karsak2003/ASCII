@@ -1,8 +1,2 @@
-/image.png
-/~resu
-/~temp
-/.venv
-t.py
-.vscode/launch.json
-.gitignore
-/__pycache__
+__pycache__/
+*.pyc
