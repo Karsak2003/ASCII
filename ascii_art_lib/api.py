@@ -22,6 +22,7 @@ from typing import Iterator, List, Optional, Sequence, Tuple, Union
 import numpy as np
 
 from .converter import frame_to_color_ansi, frame_to_mono_text
+from .edges import EdgeDetector
 from .media import classify, iter_frames, probe
 from .palettes import DEFAULT_PALETTE, get_palette
 from .renderer import ConsoleRenderer
@@ -34,6 +35,41 @@ __all__ = [
     "save_ascii",
     "terminal_fit_size",
 ]
+
+
+def _make_detector(
+    edges: Union[bool, str, None],
+    *,
+    edge_mode: str,
+    low_threshold: int,
+    high_threshold: int,
+    blur_ksize: int,
+) -> Optional[EdgeDetector]:
+    """Собирает :class:`EdgeDetector` из параметров конвертации (или ``None``)."""
+    if not edges:
+        return None
+    method = edges if isinstance(edges, str) else "canny"
+    return EdgeDetector(
+        method=method,
+        low_threshold=low_threshold,
+        high_threshold=high_threshold,
+        blur_ksize=blur_ksize,
+    )
+
+
+def _preprocess(
+    frame: np.ndarray,
+    *,
+    detector: Optional[EdgeDetector],
+    edge_mode: str,
+    invert: bool,
+) -> np.ndarray:
+    """Применяет контуры (если включены) и инверсию к кадру перед конвертацией."""
+    if detector is not None:
+        frame = detector.apply(frame, mode=edge_mode)
+    if invert:
+        frame = 255 - frame
+    return frame
 
 
 # ---------------------------------------------------------------------------
@@ -89,11 +125,17 @@ def convert_image(
     source: Union[str, np.ndarray],
     *,
     palette: str = DEFAULT_PALETTE,
+    reverse_palette: bool = False,
     size: Optional[Tuple[int, int]] = None,
     fullcolor: bool = True,
-    color_levels: int = 16,
+    color_levels: Optional[int] = None,
     invert: bool = False,
     max_pixels: Optional[int] = 32_000_000,
+    edges: Union[bool, str, None] = False,
+    edge_mode: str = "lines",
+    low_threshold: int = 50,
+    high_threshold: int = 150,
+    blur_ksize: int = 5,
 ) -> str:
     """Конвертирует изображение (путь или ``np.ndarray`` BGR) в ASCII-строку.
 
@@ -101,27 +143,46 @@ def convert_image(
         source: Путь к файлу либо уже загруженный кадр ``ndarray`` (H, W, 3) uint8.
         palette: Имя палитры (``"asii"``, ``"asii_3v"`` …) или пользовательская строка
             символов от тёмных к светлым.
+        reverse_palette: Перевернуть палитру (свет/тень символами наоборот).
         size: Целевой размер ``(ширина, высота)`` в символах. ``None`` — автоподбор
             под терминал с сохранением пропорций.
         fullcolor: ``True`` — цветной ANSI truecolor, ``False`` — монохром.
         color_levels: Уровней квантования на канал при ``fullcolor=True``.
+            ``None`` (по умолчанию) — цветовой охват выводится из размера палитры;
+            явное число переопределяет эту зависимость.
         invert: Инвертировать яркость (светлое/тёмное).
         max_pixels: Предварительно уменьшить источник, если он больше этой площади
             (защита RAM для гигантских файлов). ``None`` — без ограничения.
+        edges: Выделение контуров перед конвертацией: ``False``/``None`` — выключено,
+            ``True`` — метод по умолчанию (``"canny"``), либо строка-метод
+            (``"canny"`` / ``"sobel"``).
+        edge_mode: Режим использования контуров: ``"lines"`` — только линии
+            (чистый edge-art), ``"overlay"`` — контуры поверх оригинала.
+        low_threshold / high_threshold: Пороги двойной фильтрации контуров.
+        blur_ksize: Размер гауссова размытия перед детекцией (0 — выключить).
 
     Returns:
         Готовая многострочная строка ASCII-арта.
     """
     frame = _load_frame(source, max_pixels=max_pixels)
-    if invert:
-        frame = 255 - frame
+    detector = _make_detector(
+        edges,
+        edge_mode=edge_mode,
+        low_threshold=low_threshold,
+        high_threshold=high_threshold,
+        blur_ksize=blur_ksize,
+    )
+    frame = _preprocess(frame, detector=detector, edge_mode=edge_mode, invert=invert)
 
     info_w, info_h = frame.shape[1], frame.shape[0]
     w, h = _resolve_size(size, info_w, info_h, fullcolor)
 
     if fullcolor:
-        return frame_to_color_ansi(frame, palette, (w, h), color_levels=color_levels)
-    return frame_to_mono_text(frame, palette, (w, h))
+        return frame_to_color_ansi(
+            frame, palette, (w, h),
+            color_levels=color_levels, reverse_palette=reverse_palette,
+        )
+    return frame_to_mono_text(frame, palette, (w, h), reverse_palette=reverse_palette)
 
 
 # ---------------------------------------------------------------------------
@@ -132,12 +193,18 @@ def convert_animation(
     path: str,
     *,
     palette: str = DEFAULT_PALETTE,
+    reverse_palette: bool = False,
     size: Optional[Tuple[int, int]] = None,
     fullcolor: bool = True,
-    color_levels: int = 16,
+    color_levels: Optional[int] = None,
     invert: bool = False,
     max_pixels: Optional[int] = 32_000_000,
     progress: bool = False,
+    edges: Union[bool, str, None] = False,
+    edge_mode: str = "lines",
+    low_threshold: int = 50,
+    high_threshold: int = 150,
+    blur_ksize: int = 5,
 ) -> Iterator[str]:
     """Конвертирует GIF/видео в **генератор** ASCII-кадров.
 
@@ -157,6 +224,14 @@ def convert_animation(
 
     frames_iter = iter_frames(path, max_pixels=max_pixels)
 
+    detector = _make_detector(
+        edges,
+        edge_mode=edge_mode,
+        low_threshold=low_threshold,
+        high_threshold=high_threshold,
+        blur_ksize=blur_ksize,
+    )
+
     bar = None
     if progress:
         try:
@@ -167,12 +242,14 @@ def convert_animation(
             bar = None
 
     for frame in frames_iter:
-        if invert:
-            frame = 255 - frame
+        frame = _preprocess(frame, detector=detector, edge_mode=edge_mode, invert=invert)
         if fullcolor:
-            text = frame_to_color_ansi(frame, palette, (w, h), color_levels=color_levels)
+            text = frame_to_color_ansi(
+                frame, palette, (w, h),
+                color_levels=color_levels, reverse_palette=reverse_palette,
+            )
         else:
-            text = frame_to_mono_text(frame, palette, (w, h))
+            text = frame_to_mono_text(frame, palette, (w, h), reverse_palette=reverse_palette)
         if bar is not None:
             bar.next()
         yield text

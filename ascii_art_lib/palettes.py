@@ -38,17 +38,43 @@ PALETTES: Dict[str, str] = {
 }
 
 
-def get_palette(name_or_string: str) -> str:
+def get_palette(name_or_string: str, *, reverse: bool = False) -> str:
     """Возвращает строку-палитру по имени из :data:`PALETTES`.
 
     Если аргумент не является известным именем, считается, что это и есть
     пользовательская палитра, и возвращается как есть.
+
+    Args:
+        name_or_string: Имя палитры или произвольная строка символов.
+        reverse: ``True`` — перевернуть палитру (порядок «светлое <-> тёмное»
+            меняется на противоположный). Эквивалентно CLI-флагу ``--reverse-palette``.
     """
     if name_or_string in PALETTES:
-        return PALETTES[name_or_string]
-    if len(set(name_or_string)) < 2:
-        raise ValueError(f"Слишком короткая (или неизвестная) палитра: {name_or_string!r}")
-    return name_or_string
+        pal = PALETTES[name_or_string]
+    else:
+        pal = name_or_string
+        if len(set(pal)) < 2:
+            raise ValueError(f"Слишком короткая (или неизвестная) палитра: {name_or_string!r}")
+    return pal[::-1] if reverse else pal
+
+
+@lru_cache(maxsize=64)
+def palette_color_levels(palette: str) -> int:
+    """Рекомендуемое число уровней квантования цвета **по размеру палитры**.
+
+    Цветовой охват ASCII-арта ограничен количеством различных символов, которые
+    реально появляются в выводе: нет смысла красить вывод в 64 уровня на канал,
+    если палитра различает всего 10 оттенков яркости. Поэтому, когда пользователь
+    явно не задал ``color_levels``, мы берём величину, производную от длины
+    палитры: чем богаче палитра — тем шире цветовой охват, и наоборот.
+
+    Формула: ``round(2 + 2 * sqrt(len(palette)))`` с ограничением ``[2, 64]``
+    (для стандартных палитр 10..70 символов даёт ~8..19 уровней на канал,
+    т.е. ~500..7000 уникальных цветов).
+    """
+    n = max(2, len(set(palette)))
+    levels = int(round(2 + 2.0 * (n ** 0.5)))
+    return max(2, min(64, levels))
 
 
 @lru_cache(maxsize=32)

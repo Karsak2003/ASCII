@@ -36,6 +36,7 @@ from .converter import (
     frame_to_symbols,
     symbols_to_text,
 )
+from .edges import EdgeDetector, blend_with_source, detect_edges
 from .media import MediaInfo, classify, iter_frames, probe
 from .palettes import (
     ASII,
@@ -48,6 +49,7 @@ from .palettes import (
     PALETTES,
     SGA,
     get_palette,
+    palette_color_levels,
 )
 from .renderer import ConsoleRenderer
 from .threshold_map import ThresholdMap
@@ -67,6 +69,10 @@ __all__ = [
     "symbols_to_text",
     "frame_to_color_ansi",
     "frame_to_mono_text",
+    # Контурная детекция
+    "EdgeDetector",
+    "detect_edges",
+    "blend_with_source",
     # Медиа
     "MediaInfo",
     "classify",
@@ -76,7 +82,7 @@ __all__ = [
     "ConsoleRenderer",
     # Палитры
     "ASII", "ASII_1", "ASII_2", "ASII_3", "ASII_3V", "ASII_4",
-    "DEFAULT_PALETTE", "PALETTES", "SGA", "get_palette",
+    "DEFAULT_PALETTE", "PALETTES", "SGA", "get_palette", "palette_color_levels",
     # Прочее
     "ThresholdMap",
     "__version__",
