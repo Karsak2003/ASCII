@@ -6,7 +6,7 @@ detectors):
 
     1. Gaussain blur   — подавление шума (cv2.GaussianBlur);
     2. Sobel Gx, Gy    — градиенты яркости по горизонтали/вертикали
-       (используются готовые кэшированные ядра :mod:`ascii_art_lib.threshold_map`);
+       (используются готовые кэшированные ядра :mod:`ascii_art_lib.core.threshold_map`);
     3. Magnitude       — ``sqrt(Gx^2 + Gy^2)`` (быстрая аппроксимация через
        ``cv2.magnitude`` — C-реализация, без Python-циклов);
     4. Normalization   — приведение ``0..255``;
@@ -191,7 +191,7 @@ class EdgeDetector:
                 ``"curves"``/``"lines"``/``"palette"`` — спец-режим «палитры
                 ориентации»: возвращаются
                 **ASCII-байты символов наклона** (uint8 HxW, см.
-                :func:`~ascii_art_lib.edge_palette.frame_to_edge_symbols`) —
+                :func:`~ascii_art_lib.edges.palette.frame_to_edge_symbols`) —
                 такой выход подаётся напрямую в ``edge_symbols_to_text``,
                 а не в обычные яркостные конвертеры.
             color: Цвет линий для ``overlay`` (BGR).

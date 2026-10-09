@@ -2,7 +2,7 @@
 
 ``uint8``-сетка ``(h, w)`` -> список построчных строк текста — единственная
 реализация на весь пакет (раньше дублировалась в ``api._grid_rows`` и
-``edge_palette.decode_grid``).
+``edges.palette.decode_grid``).
 """
 
 from __future__ import annotations

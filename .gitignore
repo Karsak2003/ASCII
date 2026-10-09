@@ -1,4 +1,1 @@
-# Python cache
 __pycache__/
-*.pyc
-ascii_art_lib.egg-info

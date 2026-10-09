@@ -142,7 +142,7 @@ def frame_to_color_ansi(
         palette: Палитра символов яркости.
         size: Целевой ``(w, h)`` в символах.
         color_levels: Уровней квантования на канал. ``None`` — охват выводится
-            из размера палитры (:func:`~ascii_art_lib.palettes.palette_color_levels`):
+            из размера палитры (:func:`~ascii_art_lib.core.palettes.palette_color_levels`):
             бедная палитра -> узкий цветовой охват, богатая -> широкий.
         reverse_palette: Перевернуть палитру перед конвертацией.
         reset: Escape-последовательность сброса цвета в конце строки.

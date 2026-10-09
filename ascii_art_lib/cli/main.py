@@ -19,9 +19,9 @@ import shutil
 import sys
 from typing import List, Optional, Tuple
 
-from .api import convert_animation, convert_image, play_animation, save_ascii
-from .media import probe
-from .palettes import PALETTES, DEFAULT_PALETTE
+from ..api import convert_animation, convert_image, play_animation, save_ascii
+from ..core.media import probe
+from ..core.palettes import PALETTES, DEFAULT_PALETTE
 
 
 def _parse_size(value: str) -> Optional[Tuple[int, int]]:
@@ -105,7 +105,7 @@ EDGE_FLAG_HELP = {
 
 def _edge_fill_arg(value: str) -> str:
     """Валидатор ``--edge-fill``: 'space', 'brightness' или одиночный символ."""
-    from .edge_palette import is_edge_fill_valid
+    from ..edges.palette import is_edge_fill_valid
 
     if not value or not is_edge_fill_valid(value):
         raise argparse.ArgumentTypeError(
@@ -175,7 +175,7 @@ def print_edge_help(p: Optional[argparse.ArgumentParser] = None) -> None:
     """
     p = p or build_parser()
     q = argparse.ArgumentParser(
-        prog="asciiart [FILE...] --edges [METHOD] [ФЛАГИ КОНТУРОВ]",
+        prog="EDGE — ФЛАГИ ВЫДЕЛЕНИЯ КОНТУРОВ (asciiart --edges -h)",
         description=_EDGE_HELP_INTRO,
         epilog="Открыть эту вкладку:  asciiart --edges -h   (или коротко: -e -h)",
         add_help=False,
@@ -282,33 +282,10 @@ def _save_one(text: str, input_path: str, save_arg: str, index: int, total: int)
     return save_arg
 
 
-def run(argv: Optional[List[str]] = None) -> int:
-    raw = list(sys.argv[1:] if argv is None else argv)
-    # Вкладка «--edges -h»: отдельная справка по контурам, файлы не нужны
-    if any(a in ("--edges", "-e") for a in raw) and any(a in ("-h", "--help") for a in raw):
-        print_edge_help()
-        return 0
-    p = build_parser()
-    # Запоминаем аргументы на парсере — нужно для вкладки «--edges -h»
-    p._asciiart_argv = raw  # noqa: SLF001
-    args = p.parse_args(argv)
+def _common_kwargs(args: argparse.Namespace) -> dict:
+    """Собирает единый словарь параметров конвертации для картинок и анимаций."""
     max_pixels = args.max_pixels if args.max_pixels and args.max_pixels > 0 else None
-
-    # Определяем тип каждого входа: картинка или анимация
-    entries = []
-    for path in args.inputs:
-        if not os.path.isfile(path):
-            print(f"error: файл не найден: {path}", file=sys.stderr)
-            return 2
-        entries.append((path, probe(path)))
-
-    animations = [(p, i) for p, i in entries if i.kind == "animation"]
-    images = [(p, i) for p, i in entries if i.kind == "image"]
-
-    do_print = args.do_print if args.do_print is not None else (args.save is None)
-
-    # Общие параметры конвертации (для картинок и анимаций)
-    common = dict(
+    return dict(
         palette=args.palette,
         reverse_palette=args.reverse_palette,
         size=args.size,
@@ -327,53 +304,95 @@ def run(argv: Optional[List[str]] = None) -> int:
         edge_color=args.edge_color,
     )
 
-    rc = 0
 
-    # ---- Анимации -----------------------------------------------------------
-    for path, info in animations:
+def _classify_inputs(paths: List[str]) -> Tuple[List[Tuple[str, object]],
+                                                 List[Tuple[str, object]], int]:
+    """Делит входы на статичные изображения и анимации; (images, animations, rc)."""
+    images: List[Tuple[str, object]] = []
+    animations: List[Tuple[str, object]] = []
+    for path in paths:
+        if not os.path.isfile(path):
+            print(f"error: файл не найден: {path}", file=sys.stderr)
+            return images, animations, 2
+        info = probe(path)
+        (animations if info.kind == "animation" else images).append((path, info))
+    return images, animations, 0
+
+
+def _handle_animation(path: str, args: argparse.Namespace, common: dict,
+                      do_print: bool) -> None:
+    """Один анимационный вход: проигрывание, потоковый вывод или пакетная запись кадров."""
+    if args.play:
+        play_animation(
+            path,
+            fps=args.fps,
+            duration=args.duration,
+            save_dir=args.save if args.save else None,
+            progress=args.progress,
+            **common,
+        )
+        return
+    frames = convert_animation(path, progress=args.progress, **common)
+    if do_print:
+        import time
+
+        for text in frames:
+            sys.stdout.write("\033[H\033[J")
+            print(text, flush=True)
+            sys.stdout.flush()
+            if args.fps:
+                time.sleep(1.0 / args.fps)
+        return
+    out_dir = args.save or "."
+    os.makedirs(out_dir, exist_ok=True)
+    base = os.path.splitext(os.path.basename(path))[0]
+    for i, text in enumerate(frames):
+        ext = "ans" if args.color else "txt"
+        save_ascii(text, os.path.join(out_dir, f"{base}_{i:05d}.{ext}"))
+
+
+def _handle_image(path: str, args: argparse.Namespace, common: dict,
+                  do_print: bool, idx: int, total: int) -> None:
+    """Одно статичное изображение: конвертация + печать/сохранение."""
+    text = convert_image(path, **common)
+    if do_print:
+        print(text)
+    if args.save:
+        target = _save_one(text, path, args.save, idx, total)
+        save_ascii(text, target)
+        print(f"saved: {target}", file=sys.stderr)
+
+
+def run(argv: Optional[List[str]] = None) -> int:
+    """Точка входа CLI: разбор аргументов и диспетчер по типам входов."""
+    raw = list(sys.argv[1:] if argv is None else argv)
+    # Вкладка «--edges -h»: отдельная справка по контурам, файлы не нужны
+    if any(a in ("--edges", "-e") for a in raw) and any(a in ("-h", "--help") for a in raw):
+        print_edge_help()
+        return 0
+    p = build_parser()
+    # Запоминаем аргументы на парсере — нужно для вкладки «--edges -h»
+    p._asciiart_argv = raw  # noqa: SLF001
+    args = p.parse_args(argv)
+
+    images, animations, rc = _classify_inputs(args.inputs)
+    if rc:
+        return rc
+
+    do_print = args.do_print if args.do_print is not None else (args.save is None)
+    common = _common_kwargs(args)
+
+    for path, _info in animations:
         try:
-            if args.play:
-                play_animation(
-                    path,
-                    fps=args.fps,
-                    duration=args.duration,
-                    save_dir=args.save if args.save else None,
-                    progress=args.progress,
-                    **common,
-                )
-            else:
-                frames = convert_animation(path, progress=args.progress, **common)
-                if do_print:
-                    for text in frames:
-                        sys.stdout.write("\033[H\033[J")
-                        print(text, flush=True)
-                        sys.stdout.flush()
-                        if args.fps:
-                            import time
-                            time.sleep(1.0 / args.fps)
-                    continue
-                # Пакетная запись кадров в файлы
-                out_dir = args.save or "."
-                os.makedirs(out_dir, exist_ok=True)
-                base = os.path.splitext(os.path.basename(path))[0]
-                for i, text in enumerate(frames):
-                    ext = "ans" if args.color else "txt"
-                    save_ascii(text, os.path.join(out_dir, f"{base}_{i:05d}.{ext}"))
+            _handle_animation(path, args, common, do_print)
         except Exception as e:  # noqa: BLE001
             print(f"error processing {path!r}: {e}", file=sys.stderr)
             rc = 1
 
-    # ---- Статичные изображения ----------------------------------------------
-    n_img = len(images)
-    for idx, (path, info) in enumerate(images, start=1):
+    total = len(images) + len(animations)
+    for idx, (path, _info) in enumerate(images, start=1):
         try:
-            text = convert_image(path, **common)
-            if do_print:
-                print(text)
-            if args.save:
-                target = _save_one(text, path, args.save, idx, n_img + len(animations))
-                save_ascii(text, target)
-                print(f"saved: {target}", file=sys.stderr)
+            _handle_image(path, args, common, do_print, idx, total)
         except Exception as e:  # noqa: BLE001
             print(f"error processing {path!r}: {e}", file=sys.stderr)
             rc = 1
