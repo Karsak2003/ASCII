@@ -34,16 +34,11 @@ from typing import Optional, Tuple
 import cv2
 import numpy as np
 
-from .threshold_map import Gx as SOBEL_GX
-from .threshold_map import Gy as SOBEL_GY
+from ascii_art_lib.core.image_ops import resize_frame, to_gray
+from ascii_art_lib.core.threshold_map import Gx as SOBEL_GX
+from ascii_art_lib.core.threshold_map import Gy as SOBEL_GY
 
 __all__ = ["EdgeDetector", "detect_edges", "blend_with_source"]
-
-
-def _to_gray(frame: np.ndarray) -> np.ndarray:
-    if frame.ndim == 2:
-        return frame
-    return cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
 
 
 # ---------------------------------------------------------------------------
@@ -76,10 +71,9 @@ def detect_edges(
     Returns:
         np.ndarray (H, W) dtype uint8, 0 — фон, 255 — контур.
     """
-    if size is not None and (frame.shape[1], frame.shape[0]) != tuple(size):
-        frame = cv2.resize(frame, tuple(int(v) for v in size), interpolation=cv2.INTER_AREA)
+    frame = resize_frame(frame, size)
 
-    gray = _to_gray(frame)
+    gray = to_gray(frame)
 
     # 1. Подавление шума
     if blur_ksize and blur_ksize >= 3:
@@ -206,10 +200,9 @@ class EdgeDetector:
                 для режимов ``"curves"``/``"lines"``/``"palette"``
                 (``"curves"`` → ``extended``, ``"lines"`` → ``basic``).
         """
-        if size is not None and (frame.shape[1], frame.shape[0]) != tuple(size):
-            frame = cv2.resize(frame, tuple(int(v) for v in size), interpolation=cv2.INTER_AREA)
+        frame = resize_frame(frame, size)
         if mode in ("palette", "curves", "lines"):
-            from .edge_palette import frame_to_edge_symbols
+            from .palette import frame_to_edge_symbols
 
             if mode == "curves":
                 curve_palette_mode = "extended"

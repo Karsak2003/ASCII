@@ -2,7 +2,9 @@
 
 Отделяет «как показать» от «что показать»: конвертеры возвращают готовые строки,
 а :class:`ConsoleRenderer` отвечает за очистку экрана, позиционирование курсора,
-FPS-циклы анимации и запись в файл.
+FPS-циклы анимации и запись в файл. Наследует абстракцию
+:class:`~ascii_art_lib.utils.ansi.BaseRenderer` — при необходимости вывод можно
+подменить (файл, GUI, NUL), не трогая конвертацию.
 """
 
 from __future__ import annotations
@@ -11,7 +13,9 @@ import os
 import shutil
 import sys
 import time
-from typing import Callable, Iterator, Optional, TextIO
+from typing import Callable, Iterator, List, Optional, TextIO, Tuple
+
+from ascii_art_lib.utils.ansi import BaseRenderer
 
 # Escape-последовательности ANSI (кроссплатформенно: Windows 10+ поддерживает их сам)
 _CLEAR_SCREEN = "\033[H\033[J"
@@ -35,8 +39,10 @@ def _enable_ansi_on_windows() -> None:
         pass
 
 
-class ConsoleRenderer:
+class ConsoleRenderer(BaseRenderer):
     """Класс вывода изображения (ASCII-строк) в консоль.
+
+    Реализация :class:`~ascii_art_lib.utils.ansi.BaseRenderer`.
 
     Args:
         width/height: Принудительный размер области вывода в символах;
@@ -65,7 +71,7 @@ class ConsoleRenderer:
         self.out = out or sys.stdout
 
     # ------------------------------------------------------------------ utils
-    def fit_size(self, src_w: int, src_h: int) -> tuple:
+    def fit_size(self, src_w: int, src_h: int) -> Tuple[int, int]:
         """Размер ``(w, h)`` области вывода с сохранением пропорций источника.
 
         Компенсирует прямоугольную форму символов (символ примерно в 2 раза выше,
@@ -144,10 +150,6 @@ class ConsoleRenderer:
             if stop_key_check is not None and stop_key_check():
                 break
 
-    def save(self, text: str, path: str) -> None:
+    def save(self, text: str, path: str) -> str:
         """Сохраняет ASCII/ANSI-строку в файл (режим ANS/SRT-совместимого вывода)."""
-        d = os.path.dirname(path)
-        if d:
-            os.makedirs(d, exist_ok=True)
-        with open(path, "w", encoding="utf-8") as f:
-            f.write(text)
+        return super().save(text, path)

@@ -59,8 +59,9 @@ from typing import Dict, Optional, Tuple
 import cv2
 import numpy as np
 
-from .threshold_map import Gx as SOBEL_GX
-from .threshold_map import Gy as SOBEL_GY
+from ascii_art_lib.core.image_ops import resize_frame, to_gray
+from ascii_art_lib.core.threshold_map import Gx as SOBEL_GX
+from ascii_art_lib.core.threshold_map import Gy as SOBEL_GY
 
 __all__ = [
     "EDGE_BASIC",
@@ -300,12 +301,6 @@ def edge_palette_symbols(mode: str = "extended") -> Tuple[str, ...]:
 # Внутренние утилиты
 # ---------------------------------------------------------------------------
 
-def _to_gray(frame: np.ndarray) -> np.ndarray:
-    if frame.ndim == 2:
-        return frame
-    return cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-
-
 def _odd(v: int) -> int:
     v = int(v)
     return v if v % 2 == 1 else v + 1
@@ -460,10 +455,9 @@ def _edge_maps(
             f"Неизвестный режим палитры контуров: {mode!r} (ожидается {sorted(EDGE_PALETTES)})"
         )
 
-    if size is not None and (frame.shape[1], frame.shape[0]) != tuple(size):
-        frame = cv2.resize(frame, tuple(int(v) for v in size), interpolation=cv2.INTER_AREA)
+    frame = resize_frame(frame, size)
 
-    gray = _to_gray(frame)
+    gray = to_gray(frame)
     if gray.dtype != np.float32:
         gray = gray.astype(np.float32)
 
@@ -724,8 +718,7 @@ def frame_to_edge_ansi(
     """
     import cv2  # noqa: F401  (уже импортирован на уровне модуля)
 
-    if size is not None and (frame.shape[1], frame.shape[0]) != tuple(size):
-        frame = cv2.resize(frame, tuple(int(v) for v in size), interpolation=cv2.INTER_AREA)
+    frame = resize_frame(frame, size)
 
     sym = frame_to_edge_symbols(
         frame, None,

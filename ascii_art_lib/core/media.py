@@ -16,6 +16,8 @@ import cv2
 import numpy as np
 from PIL import Image, ImageSequence
 
+from ascii_art_lib.core.image_ops import downscale_to_area
+
 
 class MediaInfo(NamedTuple):
     """Метаданные медиа-файла (без хранения самих кадров)."""
@@ -92,15 +94,8 @@ def iter_frames(path: str, *, max_pixels: Optional[int] = None) -> Iterator[np.n
     else:
         frame = _load_image_bgr(path)
         if max_pixels and frame.shape[0] * frame.shape[1] > max_pixels:
-            frame = _downscale(frame, max_pixels)
+            frame = downscale_to_area(frame, max_pixels)
         yield frame
-
-
-def _downscale(frame: np.ndarray, max_pixels: int) -> np.ndarray:
-    h, w = frame.shape[:2]
-    scale = (max_pixels / float(w * h)) ** 0.5
-    nw, nh = max(1, int(w * scale)), max(1, int(h * scale))
-    return cv2.resize(frame, (nw, nh), interpolation=cv2.INTER_AREA)
 
 
 def _load_image_bgr(path: str) -> np.ndarray:
@@ -127,7 +122,7 @@ def _iter_image_bgr(path: str) -> Iterator[np.ndarray]:
 def _iter_gif_frames(path: str, *, max_pixels: Optional[int] = None) -> Iterator[np.ndarray]:
     for frame in _iter_image_bgr(path):
         if max_pixels and frame.shape[0] * frame.shape[1] > max_pixels:
-            frame = _downscale(frame, max_pixels)
+            frame = downscale_to_area(frame, max_pixels)
         yield frame
 
 
@@ -142,7 +137,7 @@ def _iter_video_frames(path: str, *, max_pixels: Optional[int] = None) -> Iterat
             if not ok or frame is None:
                 break
             if max_pixels and frame.shape[0] * frame.shape[1] > max_pixels:
-                frame = _downscale(frame, max_pixels)
+                frame = downscale_to_area(frame, max_pixels)
             yield frame
     finally:
         cap.release()

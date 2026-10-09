@@ -20,28 +20,15 @@ from typing import Iterable, List, Optional, Tuple
 import cv2
 import numpy as np
 
-from .palettes import (
+from ascii_art_lib.core.image_ops import resize_frame, to_gray
+from ascii_art_lib.core.palettes import (
     DEFAULT_PALETTE,
     build_lut,
     get_palette,
     is_ascii_palette,
     palette_color_levels,
 )
-
-# ANSI-константы
-ANSI_RESET = "\033[0m"
-
-
-# ---------------------------------------------------------------------------
-# Низкоуровневые вспомогательные функции (векторизованные)
-# ---------------------------------------------------------------------------
-
-def _to_gray(frame: np.ndarray) -> np.ndarray:
-    """BGR(H,W,3) uint8 -> gray(H,W) uint8 без лишних копий."""
-    if frame.ndim == 2:
-        return frame
-    return cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-
+from ascii_art_lib.utils.ansi import ANSI_RESET
 
 def quantize(values: np.ndarray, levels: int) -> np.ndarray:
     """Равномерно квантует ``uint8`` массив в ``0..levels-1`` (векторизованно)."""
@@ -71,10 +58,9 @@ def frame_to_symbol_bytes(
     if not is_ascii_palette(pal):
         return None
 
-    if size is not None and (frame.shape[1], frame.shape[0]) != tuple(size):
-        frame = cv2.resize(frame, tuple(int(v) for v in size), interpolation=cv2.INTER_AREA)
+    frame = resize_frame(frame, size)
 
-    gray = _to_gray(frame)
+    gray = to_gray(frame)
     lut = build_lut(pal)                                        # bytes(256)
     return np.take(np.frombuffer(lut, dtype=np.uint8), gray)    # C-скорость
 
@@ -98,10 +84,9 @@ def frame_to_symbols(
     pal = get_palette(palette, reverse=reverse_palette)
     n = len(pal)
 
-    if size is not None and (frame.shape[1], frame.shape[0]) != tuple(size):
-        frame = cv2.resize(frame, tuple(int(v) for v in size), interpolation=cv2.INTER_AREA)
+    frame = resize_frame(frame, size)
 
-    gray = _to_gray(frame)
+    gray = to_gray(frame)
 
     if is_ascii_palette(pal):
         # Самый быстрый путь: одна табличная операция над всем массивом.
@@ -170,8 +155,7 @@ def frame_to_color_ansi(
         color_levels = palette_color_levels(pal)
     color_levels = max(1, min(256, int(color_levels)))
 
-    if size is not None and (frame.shape[1], frame.shape[0]) != tuple(size):
-        frame = cv2.resize(frame, tuple(int(v) for v in size), interpolation=cv2.INTER_AREA)
+    frame = resize_frame(frame, size)
 
     sym_rows = frame_to_symbols(frame, pal).tolist()  # list[str] — по одной строке на ряд
 
