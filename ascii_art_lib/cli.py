@@ -42,7 +42,12 @@ def _parse_size(value: str) -> Optional[Tuple[int, int]]:
 #: Флаги, относящиеся к выделению контуров. Скрыты из общей справки, кроме
 #: самого ``--edges``/``-e`` — он всегда виден в основной помощи.
 EDGE_FLAGS = ("--edge-mode", "--curve-threshold",
-              "--edge-low", "--edge-high", "--edge-blur")
+              "--edge-low", "--edge-high", "--edge-blur",
+              "--edge-overlay", "--no-edge-overlay",
+              "--edge-fill", "--edge-color", "--no-edge-color")
+
+#: Значение по умолчанию для ``--edge-fill`` (пустой фон контура).
+DEFAULT_EDGE_FILL = "space"
 
 #: Полные тексты help всех edge-флагов (реестр). Используется и при сборке
 #: основной справки (--edges виден, остальные скрыты), и во вкладке --edges -h.
@@ -77,7 +82,37 @@ EDGE_FLAG_HELP = {
     "--edge-blur": (
         "Размер гауссова ядра перед детекцией контуров (0 — выключить)."
     ),
+    "--edge-overlay": (
+        "Наложение контура ПОВЕРХ изображения (отдельный флаг, по умолчанию "
+        "НЕ накладывает): сначала строится обычная ASCII-картинка оригинала "
+        "(--palette/--invert), затем в позициях линий её символы замещаются "
+        "символами палитры ориентации. Отключить: --no-edge-overlay."
+    ),
+    "--edge-fill": (
+        "Заполнение фона контура, когда наложение ВЫКЛЮЧЕНО (--edge-mode "
+        "curves|lines): 'space' — пустой фон (по умолчанию); одиночный символ — "
+        "однотонная канва из него (напр. '--edge-fill .', '--edge-fill \"#\"'); "
+        "'brightness' — фон заполняется символами яркостной палитры (контуры "
+        "поверх ASCII-изображения оригинала)."
+    ),
+    "--edge-color": (
+        "Окрашивание контура ANSI-цветом оригинального кадра (по умолчанию "
+        "включено, если не задан --no-color). Отключить: --no-edge-color — "
+        "контур печатается без цветовых кодов даже в цветном режиме."
+    ),
 }
+
+
+def _edge_fill_arg(value: str) -> str:
+    """Валидатор ``--edge-fill``: 'space', 'brightness' или одиночный символ."""
+    from .edge_palette import is_edge_fill_valid
+
+    if not value or not is_edge_fill_valid(value):
+        raise argparse.ArgumentTypeError(
+            f"Неверное заполнение фона: {value!r}. Используйте 'space', "
+            "'brightness' или одиночный символ, напр. '.' или '#'."
+        )
+    return value
 
 
 class _EdgesHelpAction(argparse.Action):
@@ -123,6 +158,11 @@ _EDGE_HELP_INTRO = (
     "  asciiart photo.png --edges --edge-mode lines          # без скобок\n"
     "  asciiart photo.png --edges --edge-mode curves --curve-threshold 0.3\n"
     "  asciiart photo.png --edges --edge-mode overlay        # контуры поверх оригинала\n"
+    "  asciiart photo.png --edges --edge-overlay             # контур ПОВЕРХ ASCII-картинки\n"
+    "  asciiart photo.png --edges --edge-fill .              # точечный фон вместо пустого\n"
+    "  asciiart photo.png --edges --edge-fill brightness     # яркостная канва под контуром\n"
+    "  asciiart photo.png --edges --no-edge-color            # контур без ANSI-цветов\n"
+    "  asciiart photo.png --edges --edge-mode lines --edge-fill ':'\n"
 )
 
 
@@ -196,6 +236,19 @@ def build_parser() -> argparse.ArgumentParser:
                    help=EDGE_FLAG_HELP["--edge-high"])
     p.add_argument("--edge-blur", type=int, default=5, metavar="K",
                    help=EDGE_FLAG_HELP["--edge-blur"])
+    # Наложение контура поверх изображения — отдельный флаг, по умолчанию НЕ накладывает
+    p.add_argument("--edge-overlay", dest="edge_overlay", action="store_true",
+                   default=False, help=EDGE_FLAG_HELP["--edge-overlay"])
+    p.add_argument("--no-edge-overlay", dest="edge_overlay", action="store_false",
+                   help=argparse.SUPPRESS)
+    # Заполнение фона при выключенном наложении: space / одиночный символ / brightness
+    p.add_argument("--edge-fill", type=_edge_fill_arg, default=DEFAULT_EDGE_FILL,
+                   metavar="SYM", help=EDGE_FLAG_HELP["--edge-fill"])
+    # Окрашивание контура (по умолчанию — авто: цвет, если включён fullcolor)
+    p.add_argument("--edge-color", dest="edge_color", action="store_true",
+                   default=None, help=EDGE_FLAG_HELP["--edge-color"])
+    p.add_argument("--no-edge-color", dest="edge_color", action="store_false",
+                   help=argparse.SUPPRESS)
     _hide_edge_flags(p)
     p.add_argument("--max-pixels", type=int, default=32_000_000, metavar="PX",
                    help="Лимит площади входного кадра для экономии RAM (0 = без лимита).")
@@ -269,6 +322,9 @@ def run(argv: Optional[List[str]] = None) -> int:
         high_threshold=args.edge_high,
         blur_ksize=args.edge_blur,
         curve_threshold=args.curve_threshold,
+        edge_overlay=args.edge_overlay,
+        edge_fill=args.edge_fill,
+        edge_color=args.edge_color,
     )
 
     rc = 0
