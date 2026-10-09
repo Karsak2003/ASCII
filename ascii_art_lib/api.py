@@ -22,10 +22,10 @@ from typing import Iterator, List, Optional, Sequence, Tuple, Union
 import numpy as np
 
 from .converter import frame_to_color_ansi, frame_to_mono_text
-from .edge_palette import frame_to_edge_ansi, frame_to_edge_symbols
+from .edge_palette import frame_to_edge_ansi, frame_to_edge_symbols, get_edge_palette
 from .edges import EdgeDetector
 from .media import classify, iter_frames, probe
-from .palettes import DEFAULT_PALETTE, get_palette
+from .palettes import DEFAULT_PALETTE, get_palette, palette_color_levels
 from .renderer import ConsoleRenderer
 
 __all__ = [
@@ -133,7 +133,7 @@ def convert_image(
     invert: bool = False,
     max_pixels: Optional[int] = 32_000_000,
     edges: Union[bool, str, None] = False,
-    edge_mode: str = "lines",
+    edge_mode: str = "curves",
     low_threshold: int = 50,
     high_threshold: int = 150,
     blur_ksize: int = 5,
@@ -144,46 +144,53 @@ def convert_image(
     Args:
         source: Путь к файлу либо уже загруженный кадр ``ndarray`` (H, W, 3) uint8.
         palette: Имя палитры (``"asii"``, ``"asii_3v"`` …) или пользовательская строка
-            символов от тёмных к светлым.
+            символов от тёмных к светлым. Используется в обычном режиме и в
+            ``edge_mode="overlay"``; в контурных режимах ``"curves"``/``"lines"``
+            символы задаются собственной палитрой ориентации контуров.
         reverse_palette: Перевернуть палитру (свет/тень символами наоборот).
         size: Целевой размер ``(ширина, высота)`` в символах. ``None`` — автоподбор
             под терминал с сохранением пропорций.
         fullcolor: ``True`` — цветной ANSI truecolor, ``False`` — монохром.
         color_levels: Уровней квантования на канал при ``fullcolor=True``.
             ``None`` (по умолчанию) — цветовой охват выводится из размера палитры;
-            явное число переопределяет эту зависимость.
-            (В контурном режиме ``edge_mode="palette"`` символы зависят от
-            наклона линий, а не от яркости, поэтому там ``color_levels`` по
-            умолчанию фиксирован — 32.)
-        invert: Инвертировать яркость (светлое/тёмное).
+            явное число переопределяет эту зависимость. В контурных режимах
+            («палитрой» считается набор символов ориентации: ``extended`` — 14
+            уникальных символов → ~9 уровней на канал, ``basic`` — 4 → ~6;
+            формула та же, что и для обычных палитр).
+        invert: Инвертировать яркость (светлое/тёмное). Применяется, только когда
+            контуры выключены либо выбран ``edge_mode="overlay"``; в чистых
+            контурных режимах геометрия линий от яркости исходника не зависит.
         max_pixels: Предварительно уменьшить источник, если он больше этой площади
             (защита RAM для гигантских файлов). ``None`` — без ограничения.
-        edges: Выделение контуров перед конвертацией: ``False``/``None`` — выключено,
+        edges: Выделение контуров: ``False``/``None`` — выключено,
             ``True`` — метод по умолчанию (``"canny"``), либо строка-метод
-            (``"canny"`` / ``"sobel"``).
-        edge_mode: Режим использования контуров:
-            ``"lines"`` — только линии (чистый edge-art символами яркости);
-            ``"overlay"`` — контуры поверх оригинала;
-            ``"palette"`` — **собственная палитра ориентации контуров**: символ
-            повторяет наклон линии (``/ - \\ |``), а изогнутые участки получают
-            парные скобки (``^ v < > ( ) [ ] { }``). В сочетании с
-            ``fullcolor=True`` линии красятся цветом оригинала.
+            (``"canny"`` / ``"sobel"``). Когда включено, результат ВСЕГДА рисуется
+            собственной палитрой ориентации контуров: символ повторяет наклон
+            линии (``/ - \\ |``), а изогнутые участки получают парные скобки
+            (``^ v < > ( ) [ ] { }``) — см. ``edge_mode``.
+        edge_mode: Режим контуров (актуален только при ``edges=True``):
+            ``"curves"`` (по умолчанию) — палитра ориентации + скобочные символы
+            для изогнутых участков;
+            ``"lines"`` — только базовый набор наклона ``/ - \\ |``, без скобок;
+            ``"overlay"`` — контуры поверх оригинала с обычной яркостной
+            ASCII-конвертацией (использует ``palette``/``invert``/``color_levels``).
         low_threshold / high_threshold: Пороги двойной фильтрации контуров.
         blur_ksize: Размер гауссова размытия перед детекцией (0 — выключить).
-        curve_threshold: Чувствительность определения изгиба в ``edge_mode="palette"``
-            (меньше — больше скобочных символов на изогнутых участках).
+        curve_threshold: Чувствительность определения изгиба (меньше — больше
+            скобочных символов). Используется в ``edge_mode="curves"``.
 
     Returns:
         Готовая многострочная строка ASCII-арта.
     """
     frame = _load_frame(source, max_pixels=max_pixels)
 
-    if edges and edge_mode == "palette":
+    if edges and edge_mode in ("curves", "lines"):
         info_w, info_h = frame.shape[1], frame.shape[0]
         w, h = _resolve_size(size, info_w, info_h, fullcolor)
         method = edges if isinstance(edges, str) else "canny"
         return _edge_palette_text(
             frame, (w, h),
+            mode="extended" if edge_mode == "curves" else "basic",
             fullcolor=fullcolor, color_levels=color_levels,
             low_threshold=low_threshold, high_threshold=high_threshold,
             blur_ksize=blur_ksize, curve_threshold=curve_threshold, method=method,
@@ -213,6 +220,7 @@ def _edge_palette_text(
     frame: np.ndarray,
     size: Tuple[int, int],
     *,
+    mode: str = "extended",
     fullcolor: bool,
     color_levels: Optional[int],
     low_threshold: int,
@@ -221,9 +229,17 @@ def _edge_palette_text(
     curve_threshold: float,
     method: str,
 ) -> str:
-    """Монохромный/цветной вывод в режиме собственной палитры контуров."""
+    """Монохромный/цветной вывод собственной палитрой ориентации контуров.
+
+    Args:
+        mode: ``"extended"`` — наклон + скобки для изгибов; ``"basic"`` — только
+            ``/ - \\ |``.
+        color_levels: ``None`` — охват выводится из размера самой палитры
+            ориентации (:func:`palette_color_levels` по уникальным символам);
+            явное число переопределяет эту зависимость.
+    """
     common = dict(
-        mode="extended",
+        mode=mode,
         low_threshold=low_threshold,
         high_threshold=high_threshold,
         blur_ksize=blur_ksize,
@@ -231,10 +247,10 @@ def _edge_palette_text(
         method=method,
     )
     if fullcolor:
+        if color_levels is None:
+            color_levels = palette_color_levels(get_edge_palette(mode))
         return frame_to_edge_ansi(
-            frame, size,
-            color_levels=int(color_levels) if color_levels is not None else 32,
-            **common,
+            frame, size, color_levels=int(color_levels), **common,
         )
     from .edge_palette import edge_symbols_to_text
 
@@ -258,7 +274,7 @@ def convert_animation(
     max_pixels: Optional[int] = 32_000_000,
     progress: bool = False,
     edges: Union[bool, str, None] = False,
-    edge_mode: str = "lines",
+    edge_mode: str = "curves",
     low_threshold: int = 50,
     high_threshold: int = 150,
     blur_ksize: int = 5,
@@ -282,17 +298,22 @@ def convert_animation(
 
     frames_iter = iter_frames(path, max_pixels=max_pixels)
 
-    palette_edges = bool(edges) and edge_mode == "palette"
+    palette_edges = bool(edges) and edge_mode in ("curves", "lines")
     method = (edges if isinstance(edges, str) else "canny") if palette_edges else "canny"
     edge_common = dict(
-        mode="extended",
+        mode="extended" if edge_mode == "curves" else "basic",
         low_threshold=low_threshold,
         high_threshold=high_threshold,
         blur_ksize=blur_ksize,
         curve_threshold=curve_threshold,
         method=method,
     )
-    edge_color_levels = (int(color_levels) if color_levels is not None else 32)
+    # Охват цвета по умолчанию привязан к размеру палитры ориентации контуров
+    edge_color_levels = int(
+        color_levels
+        if color_levels is not None
+        else palette_color_levels(get_edge_palette(edge_common["mode"]))
+    )
 
     detector = None
     if edges and not palette_edges:

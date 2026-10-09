@@ -244,8 +244,8 @@ def test_edge_detector_class_and_apply():
     frame = np.zeros((100, 100, 3), np.uint8)
     cv2.rectangle(frame, (20, 20), (80, 80), (255, 255, 255), 2)
     det = EdgeDetector(method="sobel", low_threshold=30)
-    lines = det.apply(frame, mode="lines")
-    assert lines.max() == 255 and lines.min() == 0
+    sym = det.apply(frame, mode="lines")   # теперь uint8-байты палитры ориентации
+    assert sym.dtype == np.uint8 and (sym != 0x20).any()
     overlay = det.apply(frame, mode="overlay")
     assert overlay.shape == frame.shape
     with pytest.raises(ValueError):
@@ -254,9 +254,12 @@ def test_edge_detector_class_and_apply():
 
 def test_convert_image_with_edges(shapes_png):
     plain = convert_image(shapes_png, size=(60, 20), fullcolor=False)
+    # edges=True теперь всегда использует палитру ориентации контуров (curves)
     edge_art = convert_image(shapes_png, size=(60, 20), fullcolor=False, edges=True)
     assert edge_art != plain
-    # в режиме «линий» артефакт разрежен: меньше непустых символов, чем у заливок
+    allowed = set("/|-\\^v<>()[]{}")
+    assert set(edge_art.replace("\n", "")) - {" "} <= allowed
+    # артефакт разрежен: меньше непустых символов, чем у заливок
     nb = lambda t: sum(1 for c in t if c not in " \n")
     assert 0 < nb(edge_art) < nb(plain)
     # контуры + цвет + overlay — всё вместе не падает и даёт ANSI
@@ -308,8 +311,64 @@ def test_cli_edges_and_reverse_flags(shapes_png, tmp_path):
     assert rc == 0 and os.path.isfile(out)
 
 
+def test_cli_edges_short_flag_and_default_palette(shapes_png, tmp_path, capsys):
+    """'-e' — сокращение '--edges'; вывод по умолчанию — палитра ориентации."""
+    from ascii_art_lib.cli import run
+
+    out = str(tmp_path / "ec.txt")
+    rc = run([shapes_png, "--size", "60x20", "--no-color", "-e",
+              "--no-print", "--save", out])
+    assert rc == 0
+    text = open(out, encoding="utf-8").read()
+    allowed = set("/|-\\^v<>()[]{}")
+    assert set(text.replace("\n", "")) - {" "} <= allowed
+    assert any(c in "/|-\\" for c in text)
+
+
+def test_cli_edges_help_tab(capsys):
+    """Комбинация '--edges -h' открывает отдельную вкладку справки по контурам."""
+    from ascii_art_lib.cli import run
+
+    rc = run(["--edges", "-h"])
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert "EDGE" in out
+    for flag in ("--edge-mode", "--curve-threshold", "--edge-low",
+                 "--edge-high", "--edge-blur"):
+        assert flag in out
+
+    # Общая справка НЕ содержит edge-флагов (они перенесены во вкладку)
+    with pytest.raises(SystemExit):
+        run(["-h"])
+    main_help = capsys.readouterr().out
+    assert "--edges" in main_help          # сам флаг виден (с указанием на вкладку)
+    assert "--edge-mode" not in main_help
+    assert "--edge-low" not in main_help
+
+
+def test_edge_color_levels_follow_edge_palette(shapes_png):
+    """Без явного color_levels охват контурного режима зависит от палитры ориентации."""
+    import re
+    from ascii_art_lib.palettes import palette_color_levels
+    from ascii_art_lib.edge_palette import get_edge_palette
+
+    def uniq_colors(text):
+        return set(re.findall(r"38;2;\d+;\d+;\d+", text))
+
+    basic = convert_image(shapes_png, size=(60, 20), edges=True,
+                          edge_mode="lines")
+    curves = convert_image(shapes_png, size=(60, 20), edges=True,
+                           edge_mode="curves")
+    assert palette_color_levels(get_edge_palette("basic")) < \
+           palette_color_levels(get_edge_palette("extended"))
+    # Явное значение переопределяет зависимость от палитры
+    forced = convert_image(shapes_png, size=(60, 20), edges=True,
+                           edge_mode="curves", color_levels=48)
+    assert len(uniq_colors(forced)) >= len(uniq_colors(curves))
+
+
 # ---------------------------------------------------------------------------
-# Палитра ориентации контуров (edge_mode="palette"): символ = наклон линии
+# Палитра ориентации контуров (edge_mode="curves"): символ = наклон линии
 # ---------------------------------------------------------------------------
 
 EDGE_ALLOWED = set("/|-\\^v<>()[]{}")
@@ -357,20 +416,20 @@ def test_edge_palette_curve_threshold_effect():
         return sum(1 for c in body if c in "^v<>()[]{}") / max(1, len(body))
 
     low = convert_image(img, size=(60, 30), fullcolor=False, edges=True,
-                        edge_mode="palette", curve_threshold=0.2)
+                        edge_mode="curves", curve_threshold=0.2)
     high = convert_image(img, size=(60, 30), fullcolor=False, edges=True,
-                         edge_mode="palette", curve_threshold=2.0)
+                         edge_mode="curves", curve_threshold=2.0)
     assert bracket_frac(low) >= bracket_frac(high)
 
 
 def test_convert_image_edge_palette_mono_and_color(shapes_png):
     mono = convert_image(shapes_png, size=(60, 20), fullcolor=False,
-                         edges=True, edge_mode="palette")
+                         edges=True, edge_mode="curves")
     assert set(mono.replace("\n", "")) - {" ", "\n"} <= EDGE_ALLOWED
     assert any(c in "/|-\\" for c in mono)
 
     color = convert_image(shapes_png, size=(60, 20), fullcolor=True,
-                          edges=True, edge_mode="palette")
+                          edges=True, edge_mode="curves")
     assert "\033[38;2;" in color                   # линии окрашены оригиналом
     import re
     plain = re.sub(r"\033\[[0-9;]*m", "", color)
@@ -388,13 +447,13 @@ def test_edge_palette_invalid_mode_raises(shapes_png):
         frame_to_edge_symbols(frame, mode="nope")
 
 
-def test_edge_detector_apply_palette_mode():
+def test_edge_detector_apply_curves_mode():
     from ascii_art_lib import EdgeDetector, edge_symbols_to_text
 
     frame = np.zeros((100, 100, 3), np.uint8)
     cv2.rectangle(frame, (20, 20), (80, 80), (255, 255, 255), 2)
     det = EdgeDetector(method="sobel", low_threshold=30)
-    sym = det.apply(frame, mode="palette", size=(50, 25))
+    sym = det.apply(frame, mode="curves", size=(50, 25))
     assert sym.dtype == np.uint8 and sym.shape == (25, 50)
     text = edge_symbols_to_text(sym)
     assert set(text.replace("\n", "")) - {" "} <= EDGE_ALLOWED
@@ -402,7 +461,7 @@ def test_edge_detector_apply_palette_mode():
 
 def test_convert_animation_edge_palette(tmp_gif):
     frames = list(convert_animation(tmp_gif, size=(40, 12), fullcolor=False,
-                                    edges=True, edge_mode="palette"))
+                                    edges=True, edge_mode="curves"))
     assert len(frames) >= 1
     for f in frames:
         assert set(f.replace("\n", "")) - {" "} <= EDGE_ALLOWED
@@ -413,7 +472,7 @@ def test_cli_edge_palette_flag(shapes_png, tmp_path):
 
     out = str(tmp_path / "p.txt")
     rc = run([shapes_png, "--size", "60x20", "--no-color", "--edges",
-              "--edge-mode", "palette", "--curve-threshold", "0.3",
+              "--edge-mode", "curves", "--curve-threshold", "0.3",
               "--no-print", "--save", out])
     assert rc == 0 and os.path.isfile(out)
     data = open(out).read()

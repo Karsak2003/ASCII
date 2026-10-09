@@ -194,7 +194,8 @@ class EdgeDetector:
             mode: ``"lines"`` — чёрно-белое изображение, где контуры белые на
                 чёрном фоне (чистый edge-art); ``"overlay"`` — контуры, наложенные
                 на оригинал (оригинал затемняется в ``alpha`` раз в местах линий);
-                ``"palette"`` — спец-режим «палитры ориентации»: возвращаются
+                ``"curves"``/``"lines"``/``"palette"`` — спец-режим «палитры
+                ориентации»: возвращаются
                 **ASCII-байты символов наклона** (uint8 HxW, см.
                 :func:`~ascii_art_lib.edge_palette.frame_to_edge_symbols`) —
                 такой выход подаётся напрямую в ``edge_symbols_to_text``,
@@ -202,13 +203,18 @@ class EdgeDetector:
             color: Цвет линий для ``overlay`` (BGR).
             alpha: Сила затемнения оригинала под линиями (0..1).
             curve_palette_mode / curve_threshold: параметры палитры ориентации
-                для ``mode="palette"``.
+                для режимов ``"curves"``/``"lines"``/``"palette"``
+                (``"curves"`` → ``extended``, ``"lines"`` → ``basic``).
         """
         if size is not None and (frame.shape[1], frame.shape[0]) != tuple(size):
             frame = cv2.resize(frame, tuple(int(v) for v in size), interpolation=cv2.INTER_AREA)
-        if mode == "palette":
+        if mode in ("palette", "curves", "lines"):
             from .edge_palette import frame_to_edge_symbols
 
+            if mode == "curves":
+                curve_palette_mode = "extended"
+            elif mode == "lines":
+                curve_palette_mode = "basic"
             return frame_to_edge_symbols(
                 frame, None,
                 mode=curve_palette_mode,
@@ -228,7 +234,10 @@ class EdgeDetector:
             out = frame.copy()
             out[mask] = color
             return out
-        raise ValueError(f"Неизвестный режим наложения: {mode!r} ('lines'/'overlay'/'palette')")
+        raise ValueError(
+            f"Неизвестный режим наложения: {mode!r} "
+            "('lines'/'overlay'/'curves'/'palette')"
+        )
 
 
 # ---------------------------------------------------------------------------

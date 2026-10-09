@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import shutil
 import sys
 from typing import List, Optional, Tuple
 
@@ -31,6 +32,72 @@ def _parse_size(value: str) -> Optional[Tuple[int, int]]:
             a, b = value.split(sep, 1)
             return int(a), int(b)
     raise argparse.ArgumentTypeError(f"Неверный формат размера: {value!r} (ожидается WxH)")
+
+
+# ---------------------------------------------------------------------------
+# «Вкладка» контуров: --edges -h печатает отдельную справку по edge-флагам
+# ---------------------------------------------------------------------------
+
+#: Флаги, относящиеся к выделению контуров (скрыты из общей справки).
+EDGE_FLAGS = ("--edges", "--edge-mode", "--curve-threshold",
+              "--edge-low", "--edge-high", "--edge-blur")
+
+
+class _EdgesHelpAction(argparse.Action):
+    """Открывает отдельную «вкладку» справки по контурам.
+
+    Срабатывает на комбинацию ``--edges -h`` (короткий вариант ``-e -h``):
+    если вместе с ``--edges`` в аргументах есть ``-h``/``--help``, печатается
+    только раздел EDGE и программа завершается. Сам флаг ``--edges`` при этом
+    продолжает работать как обычно (если ``-h`` не указан).
+    """
+
+    def __init__(self, option_strings, dest, help=None, **kwargs):  # noqa: D107
+        super().__init__(option_strings, dest, nargs="?", const="canny",
+                         default=None, help=help, **kwargs)
+
+    def __call__(self, parser, namespace, values, option_string=None):
+        argv = list(getattr(parser, "_asciiart_argv", []) or sys.argv[1:])
+        if "-h" in argv or "--help" in argv:
+            print_edge_help(parser)
+            parser.exit(0)
+        setattr(namespace, self.dest, values if values is not None else self.const)
+
+
+def _hide_edge_flags(p: argparse.ArgumentParser) -> None:
+    """Прячет edge-флаги из основной справки — они живут во вкладке ``--edges -h``."""
+    for action in p._actions:  # noqa: SLF001 (argparse не имеет публичного API)
+        if any(opt in EDGE_FLAGS for opt in action.option_strings):
+            action.help = argparse.SUPPRESS
+
+
+def print_edge_help(p: Optional[argparse.ArgumentParser] = None) -> None:
+    """Печатает отдельную справку («вкладку») по флагам выделения контуров."""
+    p = p or build_parser()
+    width = shutil.get_terminal_size((80, 24)).columns
+    fmt = argparse.HelpFormatter("asciiart [ФЛАГИ КОНТУРОВ]", max_help_position=30,
+                                 width=max(60, min(width, 100)))
+    print("EDGE — выделение контуров (отдельная справка; открыть: --edges -h)")
+    print("=" * 72)
+    print(fmt._format_text(  # noqa: SLF001
+        "Когда включён ``--edges``, результат ВСЕГДА рисуется собственной "
+        "палитрой ориентации контуров: символ повторяет наклон линии "
+        "('/ - \\ |'), а изогнутые участки получают парные скобки "
+        "('^ v < > ( ) [ ] { }'). Флаги ниже тонко настраивают этот режим.\n\n"
+        "Примеры:\n"
+        "  asciiart photo.png --edges\n"
+        "  asciiart photo.png -e sobel --edge-low 30 --edge-high 100\n"
+        "  asciiart photo.png --edges --edge-mode lines          # без скобок\n"
+        "  asciiart photo.png --edges --edge-mode curves --curve-threshold 0.3\n"
+        "  asciiart photo.png --edges --edge-mode overlay        # контуры поверх оригинала\n"
+    ))
+    dummy = argparse.ArgumentParser(add_help=False)
+    group = dummy.add_argument_group("флаги контуров")  # _ArgumentGroup с публичным API
+    for action in p._actions:  # noqa: SLF001
+        if any(opt in EDGE_FLAGS for opt in action.option_strings):
+            group._add_action(action)  # noqa: SLF001
+    fmt._add_argument_group(group)  # noqa: SLF001 (приватный API argparse)
+    print(fmt.format_help())
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -51,16 +118,21 @@ def build_parser() -> argparse.ArgumentParser:
                    help="Уровней квантования на цветовой канал. "
                         "По умолчанию выводится из размера палитры.")
     p.add_argument("--invert", "-i", action="store_true", help="Инвертировать яркость.")
-    p.add_argument("--edges", nargs="?", const="canny", default=None, metavar="METHOD",
+    p.add_argument("-e", "--edges", action=_EdgesHelpAction, metavar="METHOD",
                    choices=["canny", "sobel"],
-                   help="Выделение контуров перед конвертацией (canny по умолчанию либо sobel).")
-    p.add_argument("--edge-mode", default="lines", choices=["lines", "overlay", "palette"],
-                   help="Режим контуров: 'lines' — только линии (символы яркости), "
-                        "'overlay' — поверх оригинала, "
-                        "'palette' — собственная палитра ориентации контуров "
-                        "(наклон линии -> '/ - \\ |', изгибы -> '^ v < > ( ) [ ] { }').")
+                   help="Выделение контуров: результат всегда рисуется собственной "
+                        "палитрой ориентации ('/|-\\' по наклону, изгибы — скобками). "
+                        "Без аргумента — canny. Все тонкие настройки контуров скрыты "
+                        "в отдельной справке: запустите с '--edges -h'.")
+    p.add_argument("--edge-mode", default="curves", choices=["curves", "lines", "overlay"],
+                   help="Что делать с изгибами контура (вкладка '--edges -h'): "
+                        "'curves' (по умолчанию) — изогнутые участки получают "
+                        "скобочные символы '^ v < > ( ) [ ] { }'; "
+                        "'lines' — только базовый набор наклона '/ - \\ |', без скобок; "
+                        "'overlay' — контуры поверх оригинала (яркостная ASCII-конвертация "
+                        "обычной палитрой вместо палитры ориентации).")
     p.add_argument("--curve-threshold", type=float, default=0.5, metavar="X",
-                   help="Чувствительность определения изгиба для --edge-mode palette "
+                   help="--edge-mode curves: чувствительность определения изгиба "
                         "(меньше — больше скобочных символов; по умолчанию 0.5).")
     p.add_argument("--edge-low", type=int, default=50, metavar="N",
                    help="Нижний порог детекции контуров (по умолчанию 50).")
@@ -68,6 +140,7 @@ def build_parser() -> argparse.ArgumentParser:
                    help="Верхний порог детекции контуров (по умолчанию 150).")
     p.add_argument("--edge-blur", type=int, default=5, metavar="K",
                    help="Размер гауссова ядра перед детекцией контуров (0 — выключить).")
+    _hide_edge_flags(p)
     p.add_argument("--max-pixels", type=int, default=32_000_000, metavar="PX",
                    help="Лимит площади входного кадра для экономии RAM (0 = без лимита).")
     p.add_argument("--fps", type=float, default=None,
@@ -101,7 +174,15 @@ def _save_one(text: str, input_path: str, save_arg: str, index: int, total: int)
 
 
 def run(argv: Optional[List[str]] = None) -> int:
-    args = build_parser().parse_args(argv)
+    raw = list(sys.argv[1:] if argv is None else argv)
+    # Вкладка «--edges -h»: отдельная справка по контурам, файлы не нужны
+    if any(a in ("--edges", "-e") for a in raw) and any(a in ("-h", "--help") for a in raw):
+        print_edge_help()
+        return 0
+    p = build_parser()
+    # Запоминаем аргументы на парсере — нужно для вкладки «--edges -h»
+    p._asciiart_argv = raw  # noqa: SLF001
+    args = p.parse_args(argv)
     max_pixels = args.max_pixels if args.max_pixels and args.max_pixels > 0 else None
 
     # Определяем тип каждого входа: картинка или анимация
