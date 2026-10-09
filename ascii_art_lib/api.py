@@ -741,7 +741,7 @@ def convert_animation(
         if not edge_overlay and _nf(fill) == " ":
             fill = "brightness"
     palette_edges = bool(edges)
-    edge_common = dict(
+    edge_common:dict = dict(
         mode="extended" if edge_mode != "lines" else "basic",
         low_threshold=low_threshold,
         high_threshold=high_threshold,
