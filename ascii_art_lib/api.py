@@ -514,82 +514,81 @@ def _overlay_edges_on_canvas(edge_grid: np.ndarray, canvas_u8: np.ndarray,
         out[line_mask, 0::2] = eg[line_mask]
     return out
 
-
 def _edge_ansi_from_symbols(sym: np.ndarray, frame_rgb: np.ndarray, levels: int) -> str:
-    """ANSI-сборка контурного ASCII из готовой карты символов.
-
-    Ключевое отличие от «компактного» режима :func:`frame_to_edge_ansi`: здесь
-    печатаются ВСЕ позиции строки (пробелы фона сохраняются посимвольно), поэтому
-    монохромный и цветной вывод имеют идентичную геометрию — никаких склеек
-    символов через фон. ANSI-префикс ставится только при СМЕНЕ квантованного
-    цвета (дельта-кодирование), что держит объём вывода компактным.
-
-    Args:
-        sym: кодовая сетка uint8 ``(h, w)`` или ``(h, 2w)`` (escape-пары Unicode)
-            из ``frame_to_edge_symbols`` / ``apply_edge_fill``.
-        frame_rgb: кадр того же размера ``(h, w, 3)`` — источник цвета.
-        levels: уровней квантования на канал.
-    """
+    """ANSI-сборка контурного ASCII из готовой карты символов."""
     h = sym.shape[0]
-    # Escape-пары Unicode делают сетку вдвое шире кадра — восстанавливаем w
     unicode_grid = sym.ndim == 2 and sym.shape[1] != frame_rgb.shape[1]
     w = sym.shape[1] // 2 if unicode_grid else sym.shape[1]
-    # Приводим размер кадра к размеру карты символов (гарантия против рассинхрона)
+    
+    # Приводим размер кадра к размеру карты символов
     if frame_rgb.shape[0] != h or frame_rgb.shape[1] != w:
         import cv2 as _cv2
         frame_rgb = _cv2.resize(frame_rgb, (int(w), int(h)), interpolation=_cv2.INTER_AREA)
     if frame_rgb.ndim == 2:
         frame_rgb = np.dstack([frame_rgb] * 3)
-
+        
     q = max(1, 256 // max(1, min(256, int(levels))))
     lvl = (frame_rgb.astype(np.uint16) + (q // 2)) // q
     lvl = np.clip(lvl, 0, levels - 1)
     val = (lvl * q + (q // 2)).clip(0, 255).astype(np.uint8)
+    
     cid = ((val[:, :, 2].astype(np.int32) << 16)
            | (val[:, :, 1].astype(np.int32) << 8)
            | val[:, :, 0].astype(np.int32))
-
-    # Префикс нужен там, где цвет отличается от предыдущей позиции строки
-    # (в т.ч. на границе «фон/линия», когда за пробелом идёт окрашенный символ).
+           
     change = np.empty(cid.shape, dtype=bool)
     change[:, 0] = True
     change[:, 1:] = cid[:, 1:] != cid[:, :-1]
-
+    
     uniq_ids = np.unique(cid[change])
     prefix_at = dict(
         zip(
             uniq_ids.tolist(),
-            (f"\033[38;2;{(i >> 16) & 0xFF};{(i >> 8) & 0xFF};{i & 0xFF}m"
-             for i in uniq_ids.tolist()),
+            (f"\033[38;2;{(i >> 16) & 0xFF};{(i >> 8) & 0xFF};{i & 0xFF}m" for i in uniq_ids.tolist()),
         )
     )
-
-    from .edge_palette import decode_grid
-
-    sym_rows = decode_grid(sym)          # список строк текста (escape развёрнут)
+    
+    # Импортируем словарь для расшифровки ESC-последовательностей
+    from .edge_palette import _EXT_CODE
+    
     cid_list = cid.tolist()
     chg_list = change.tolist()
     out_lines = []
+    
     for y in range(h):
-        row_sym = sym_rows[y]
         row_cid = cid_list[y]
         row_ch = chg_list[y]
         parts = []
         run = ""
-        x = 0
-        for ch in row_sym:
+        
+        # Итерируемся строго по ширине исходной сетки (w), а не по длине decoded-строки
+        for x in range(w):
+            # Получаем символ из кодовой сетки
+            if unicode_grid:
+                b1 = int(sym[y, 2 * x])
+                b2 = int(sym[y, 2 * x + 1])
+                if b1 == 0x1B:
+                    ch = _EXT_CODE.get(b2, "?")
+                else:
+                    ch = chr(b1)
+            else:
+                ch = chr(int(sym[y, x]))
+            
+            # Меняем ANSI-префикс только при смене цвета
             if row_ch[x]:
                 if run:
                     parts.append(run)
                 run = prefix_at[row_cid[x]]
+            
+            # Символ добавляется ВСЕГДА (включая пробелы-заполнители)
             run += ch
-            x += 1
+                
         if run:
             parts.append(run)
         parts.append("\033[0m")
         out_lines.append("".join(parts))
+        
     return "\n".join(out_lines)
-
 
 # ---------------------------------------------------------------------------
 # Конвертация анимации (GIF / видео) — ленивый генератор, экономия RAM
