@@ -185,18 +185,39 @@ class EdgeDetector:
         color: Tuple[int, int, int] = (255, 255, 255),
         alpha: float = 0.5,
         size: Optional[Tuple[int, int]] = None,
+        curve_palette_mode: str = "extended",
+        curve_threshold: float = 0.5,
     ) -> np.ndarray:
         """Возвращает кадр, готовый к ASCII-конвертации с контурами.
 
         Args:
             mode: ``"lines"`` — чёрно-белое изображение, где контуры белые на
                 чёрном фоне (чистый edge-art); ``"overlay"`` — контуры, наложенные
-                на оригинал (оригинал затемняется в ``alpha`` раз в местах линий).
+                на оригинал (оригинал затемняется в ``alpha`` раз в местах линий);
+                ``"palette"`` — спец-режим «палитры ориентации»: возвращаются
+                **ASCII-байты символов наклона** (uint8 HxW, см.
+                :func:`~ascii_art_lib.edge_palette.frame_to_edge_symbols`) —
+                такой выход подаётся напрямую в ``edge_symbols_to_text``,
+                а не в обычные яркостные конвертеры.
             color: Цвет линий для ``overlay`` (BGR).
             alpha: Сила затемнения оригинала под линиями (0..1).
+            curve_palette_mode / curve_threshold: параметры палитры ориентации
+                для ``mode="palette"``.
         """
         if size is not None and (frame.shape[1], frame.shape[0]) != tuple(size):
             frame = cv2.resize(frame, tuple(int(v) for v in size), interpolation=cv2.INTER_AREA)
+        if mode == "palette":
+            from .edge_palette import frame_to_edge_symbols
+
+            return frame_to_edge_symbols(
+                frame, None,
+                mode=curve_palette_mode,
+                low_threshold=self.low_threshold,
+                high_threshold=self.high_threshold,
+                blur_ksize=self.blur_ksize,
+                curve_threshold=curve_threshold,
+                method=self.method,
+            )
         edges = self.detect(frame)
         mask = edges > 0
         if mode == "lines":
@@ -207,7 +228,7 @@ class EdgeDetector:
             out = frame.copy()
             out[mask] = color
             return out
-        raise ValueError(f"Неизвестный режим наложения: {mode!r} ('lines'/'overlay')")
+        raise ValueError(f"Неизвестный режим наложения: {mode!r} ('lines'/'overlay'/'palette')")
 
 
 # ---------------------------------------------------------------------------
