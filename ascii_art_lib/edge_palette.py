@@ -163,47 +163,32 @@ def apply_edge_fill(
     unicode_grid: bool = False,
     brightness_bytes: Optional[np.ndarray] = None,
 ) -> np.ndarray:
-    """Заменяет фон (пробелы) кодовой сетки контуров на символ заполнения.
-
-    Применяется только когда контуры **не** накладываются на изображение
-    (``overlay=False``): по умолчанию фон остаётся пустым (``"space"``).
-
-    Args:
-        grid: кодовая сетка из :func:`frame_to_edge_symbols` (H, W) или (H, 2W).
-        line_mask: маска линий (H, W) bool — позиции, которые НЕ трогаем.
-        fill: значение ``--edge-fill`` / ``fill=`` (см. :func:`normalize_fill`):
-            ``"space"``/``None`` — без изменений; одиночный символ — однотонная
-            канва; ``"brightness"`` — яркостные символы палитры (нужен
-            ``brightness_bytes``).
-        unicode_grid: ``True`` для extended-сетки (позиции символов выровнены
-            парами байтов).
-        brightness_bytes: uint8-сетка (H, W) яркостных ASCII-символов — источник
-            для режима ``"brightness"`` (обычно из
-            :func:`ascii_art_lib.converter.frame_to_symbol_bytes`). Если не
-            передан и его невозможно получить — режим деградирует до пробелов.
-
-    Returns:
-        Новая кодовая сетка (или та же, если заполнение не требуется).
-    """
+    """Заменяет фон (пробелы) кодовой сетки контуров на символ заполнения."""
     f = normalize_fill(fill)
     if f == " ":
         return grid
-    bg = ~line_mask
+
+    bg = ~line_mask  # маска фона, форма (h, w)
 
     if f == "brightness":
         bb = brightness_bytes
-        if bb is None or grid.shape[0] != bb.shape[0] or grid.shape[1] != bb.shape[1]:
-            # Нет совместимой яркостной сетки — оставляем пустой фон
+        if bb is None or grid.shape[0] != bb.shape[0]:
             return grid
+        # Проверка совместимости размеров с учётом unicode_grid
+        if unicode_grid:
+            if grid.shape[1] != 2 * bb.shape[1]:
+                return grid
+        else:
+            if grid.shape[1] != bb.shape[1]:
+                return grid
+
         out = grid.copy()
         if unicode_grid:
-            even = out[:, 0::2]
-            odd = out[:, 1::2]
-            ev_bb = bb[:, 0::2]
-            od_bb = bb[:, 1::2]
-            m_bg = bg[:, 0::2]
-            even[m_bg] = ev_bb[m_bg]
-            odd[m_bg] = od_bb[m_bg]
+            even = out[:, 0::2]  # форма (h, w)
+            odd = out[:, 1::2]   # форма (h, w)
+            # Используем bg напрямую, без дополнительного срезания
+            even[bg] = bb[bg]
+            odd[bg] = bb[bg]
         else:
             out[bg] = bb[bg]
         return out
@@ -211,11 +196,11 @@ def apply_edge_fill(
     byte = _fill_byte(f)
     out = grid.copy()
     if unicode_grid:
-        even = out[:, 0::2]
-        odd = out[:, 1::2]
-        m_bg = bg[:, 0::2]
-        even[m_bg] = byte
-        odd[m_bg] = byte          # одиночный символ: дубль байта (выравнивание пар)
+        even = out[:, 0::2]  # форма (h, w)
+        odd = out[:, 1::2]   # форма (h, w)
+        # Используем bg напрямую, без дополнительного срезания
+        even[bg] = byte
+        odd[bg] = byte
     else:
         out[bg] = byte
     return out
