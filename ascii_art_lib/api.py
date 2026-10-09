@@ -249,13 +249,78 @@ def _edge_palette_text(
     if fullcolor:
         if color_levels is None:
             color_levels = palette_color_levels(get_edge_palette(mode))
-        return frame_to_edge_ansi(
-            frame, size, color_levels=int(color_levels), **common,
-        )
+        # frame уже целевого размера -> символы и цвет совпадают по геометрии
+        sym = frame_to_edge_symbols(frame, size, **common)
+        return _edge_ansi_from_symbols(sym, frame, int(color_levels))
     from .edge_palette import edge_symbols_to_text
 
     sym = frame_to_edge_symbols(frame, size, **common)
     return edge_symbols_to_text(sym)
+
+
+def _edge_ansi_from_symbols(sym: np.ndarray, frame_rgb: np.ndarray, levels: int) -> str:
+    """ANSI-сборка контурного ASCII из готовой карты символов.
+
+    Ключевое отличие от «компактного» режима :func:`frame_to_edge_ansi`: здесь
+    печатаются ВСЕ позиции строки (пробелы фона сохраняются посимвольно), поэтому
+    монохромный и цветной вывод имеют идентичную геометрию — никаких склеек
+    символов через фон. ANSI-префикс ставится только при СМЕНЕ квантованного
+    цвета (дельта-кодирование), что держит объём вывода компактным.
+
+    Args:
+        sym: uint8-карта ASCII-байтов ``(h, w)`` из ``frame_to_edge_symbols``.
+        frame_rgb: кадр того же размера ``(h, w, 3)`` — источник цвета.
+        levels: уровней квантования на канал.
+    """
+    h, w = sym.shape[:2]
+    # Приводим размер кадра к размеру карты символов (гарантия против рассинхрона)
+    if frame_rgb.shape[0] != h or frame_rgb.shape[1] != w:
+        import cv2 as _cv2
+        frame_rgb = _cv2.resize(frame_rgb, (int(w), int(h)), interpolation=_cv2.INTER_AREA)
+    if frame_rgb.ndim == 2:
+        frame_rgb = np.dstack([frame_rgb] * 3)
+
+    q = max(1, 256 // max(1, min(256, int(levels))))
+    lvl = (frame_rgb.astype(np.uint16) + (q // 2)) // q
+    lvl = np.clip(lvl, 0, levels - 1)
+    val = (lvl * q + (q // 2)).clip(0, 255).astype(np.uint8)
+    cid = ((val[:, :, 2].astype(np.int32) << 16)
+           | (val[:, :, 1].astype(np.int32) << 8)
+           | val[:, :, 0].astype(np.int32))
+
+    # Префикс нужен там, где цвет отличается от предыдущей позиции строки
+    # (в т.ч. на границе «фон/линия», когда за пробелом идёт окрашенный символ).
+    change = np.empty(cid.shape, dtype=bool)
+    change[:, 0] = True
+    change[:, 1:] = cid[:, 1:] != cid[:, :-1]
+
+    uniq_ids = np.unique(cid[change])
+    prefix_at = dict(
+        zip(
+            uniq_ids.tolist(),
+            (f"\033[38;2;{(i >> 16) & 0xFF};{(i >> 8) & 0xFF};{i & 0xFF}m"
+             for i in uniq_ids.tolist()),
+        )
+    )
+
+    out_lines = []
+    for y in range(sym.shape[0]):
+        row_sym = bytes(sym[y]).decode("ascii")
+        row_cid = cid[y].tolist()
+        row_ch = change[y].tolist()
+        parts = []
+        run = ""
+        for x, ch in enumerate(row_ch):
+            if ch:
+                if run:
+                    parts.append(run)
+                run = prefix_at[row_cid[x]]
+            run += row_sym[x]
+        if run:
+            parts.append(run)
+        parts.append("\033[0m")
+        out_lines.append("".join(parts))
+    return "\n".join(out_lines)
 
 
 # ---------------------------------------------------------------------------
@@ -336,10 +401,10 @@ def convert_animation(
 
     for frame in frames_iter:
         if palette_edges:
+            sym = frame_to_edge_symbols(frame, (w, h), **edge_common)
             if fullcolor:
-                text = frame_to_edge_ansi(frame, (w, h), color_levels=edge_color_levels, **edge_common)
+                text = _edge_ansi_from_symbols(sym, frame, edge_color_levels)
             else:
-                sym = frame_to_edge_symbols(frame, (w, h), **edge_common)
                 text = "\n".join(bytes(row).decode("ascii") for row in sym)
         else:
             frame = _preprocess(frame, detector=detector, edge_mode=edge_mode, invert=invert)
