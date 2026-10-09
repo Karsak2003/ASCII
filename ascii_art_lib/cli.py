@@ -42,7 +42,9 @@ def _parse_size(value: str) -> Optional[Tuple[int, int]]:
 #: Флаги, относящиеся к выделению контуров. Скрыты из общей справки, кроме
 #: самого ``--edges``/``-e`` — он всегда виден в основной помощи.
 EDGE_FLAGS = ("--edge-mode", "--curve-threshold",
-              "--edge-low", "--edge-high", "--edge-blur")
+              "--edge-low", "--edge-high", "--edge-blur",
+              "--edge-overlay", "--no-edge-overlay",
+              "--edge-fill", "--edge-color", "--no-edge-color")
 
 #: Полные тексты help всех edge-флагов (реестр). Используется и при сборке
 #: основной справки (--edges виден, остальные скрыты), и во вкладке --edges -h.
