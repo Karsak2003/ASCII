@@ -22,6 +22,7 @@ from typing import Iterator, List, Optional, Sequence, Tuple, Union
 import numpy as np
 
 from .converter import frame_to_color_ansi, frame_to_mono_text
+from .edge_palette import frame_to_edge_ansi, frame_to_edge_symbols
 from .edges import EdgeDetector
 from .media import classify, iter_frames, probe
 from .palettes import DEFAULT_PALETTE, get_palette
@@ -136,6 +137,7 @@ def convert_image(
     low_threshold: int = 50,
     high_threshold: int = 150,
     blur_ksize: int = 5,
+    curve_threshold: float = 0.5,
 ) -> str:
     """Конвертирует изображение (путь или ``np.ndarray`` BGR) в ASCII-строку.
 
@@ -150,21 +152,43 @@ def convert_image(
         color_levels: Уровней квантования на канал при ``fullcolor=True``.
             ``None`` (по умолчанию) — цветовой охват выводится из размера палитры;
             явное число переопределяет эту зависимость.
+            (В контурном режиме ``edge_mode="palette"`` символы зависят от
+            наклона линий, а не от яркости, поэтому там ``color_levels`` по
+            умолчанию фиксирован — 32.)
         invert: Инвертировать яркость (светлое/тёмное).
         max_pixels: Предварительно уменьшить источник, если он больше этой площади
             (защита RAM для гигантских файлов). ``None`` — без ограничения.
         edges: Выделение контуров перед конвертацией: ``False``/``None`` — выключено,
             ``True`` — метод по умолчанию (``"canny"``), либо строка-метод
             (``"canny"`` / ``"sobel"``).
-        edge_mode: Режим использования контуров: ``"lines"`` — только линии
-            (чистый edge-art), ``"overlay"`` — контуры поверх оригинала.
+        edge_mode: Режим использования контуров:
+            ``"lines"`` — только линии (чистый edge-art символами яркости);
+            ``"overlay"`` — контуры поверх оригинала;
+            ``"palette"`` — **собственная палитра ориентации контуров**: символ
+            повторяет наклон линии (``/ - \\ |``), а изогнутые участки получают
+            парные скобки (``^ v < > ( ) [ ] { }``). В сочетании с
+            ``fullcolor=True`` линии красятся цветом оригинала.
         low_threshold / high_threshold: Пороги двойной фильтрации контуров.
         blur_ksize: Размер гауссова размытия перед детекцией (0 — выключить).
+        curve_threshold: Чувствительность определения изгиба в ``edge_mode="palette"``
+            (меньше — больше скобочных символов на изогнутых участках).
 
     Returns:
         Готовая многострочная строка ASCII-арта.
     """
     frame = _load_frame(source, max_pixels=max_pixels)
+
+    if edges and edge_mode == "palette":
+        info_w, info_h = frame.shape[1], frame.shape[0]
+        w, h = _resolve_size(size, info_w, info_h, fullcolor)
+        method = edges if isinstance(edges, str) else "canny"
+        return _edge_palette_text(
+            frame, (w, h),
+            fullcolor=fullcolor, color_levels=color_levels,
+            low_threshold=low_threshold, high_threshold=high_threshold,
+            blur_ksize=blur_ksize, curve_threshold=curve_threshold, method=method,
+        )
+
     detector = _make_detector(
         edges,
         edge_mode=edge_mode,
@@ -183,6 +207,39 @@ def convert_image(
             color_levels=color_levels, reverse_palette=reverse_palette,
         )
     return frame_to_mono_text(frame, palette, (w, h), reverse_palette=reverse_palette)
+
+
+def _edge_palette_text(
+    frame: np.ndarray,
+    size: Tuple[int, int],
+    *,
+    fullcolor: bool,
+    color_levels: Optional[int],
+    low_threshold: int,
+    high_threshold: int,
+    blur_ksize: int,
+    curve_threshold: float,
+    method: str,
+) -> str:
+    """Монохромный/цветной вывод в режиме собственной палитры контуров."""
+    common = dict(
+        mode="extended",
+        low_threshold=low_threshold,
+        high_threshold=high_threshold,
+        blur_ksize=blur_ksize,
+        curve_threshold=curve_threshold,
+        method=method,
+    )
+    if fullcolor:
+        return frame_to_edge_ansi(
+            frame, size,
+            color_levels=int(color_levels) if color_levels is not None else 32,
+            **common,
+        )
+    from .edge_palette import edge_symbols_to_text
+
+    sym = frame_to_edge_symbols(frame, size, **common)
+    return edge_symbols_to_text(sym)
 
 
 # ---------------------------------------------------------------------------
@@ -205,6 +262,7 @@ def convert_animation(
     low_threshold: int = 50,
     high_threshold: int = 150,
     blur_ksize: int = 5,
+    curve_threshold: float = 0.5,
 ) -> Iterator[str]:
     """Конвертирует GIF/видео в **генератор** ASCII-кадров.
 
@@ -224,13 +282,27 @@ def convert_animation(
 
     frames_iter = iter_frames(path, max_pixels=max_pixels)
 
-    detector = _make_detector(
-        edges,
-        edge_mode=edge_mode,
+    palette_edges = bool(edges) and edge_mode == "palette"
+    method = (edges if isinstance(edges, str) else "canny") if palette_edges else "canny"
+    edge_common = dict(
+        mode="extended",
         low_threshold=low_threshold,
         high_threshold=high_threshold,
         blur_ksize=blur_ksize,
+        curve_threshold=curve_threshold,
+        method=method,
     )
+    edge_color_levels = (int(color_levels) if color_levels is not None else 32)
+
+    detector = None
+    if edges and not palette_edges:
+        detector = _make_detector(
+            edges,
+            edge_mode=edge_mode,
+            low_threshold=low_threshold,
+            high_threshold=high_threshold,
+            blur_ksize=blur_ksize,
+        )
 
     bar = None
     if progress:
@@ -242,14 +314,21 @@ def convert_animation(
             bar = None
 
     for frame in frames_iter:
-        frame = _preprocess(frame, detector=detector, edge_mode=edge_mode, invert=invert)
-        if fullcolor:
-            text = frame_to_color_ansi(
-                frame, palette, (w, h),
-                color_levels=color_levels, reverse_palette=reverse_palette,
-            )
+        if palette_edges:
+            if fullcolor:
+                text = frame_to_edge_ansi(frame, (w, h), color_levels=edge_color_levels, **edge_common)
+            else:
+                sym = frame_to_edge_symbols(frame, (w, h), **edge_common)
+                text = "\n".join(bytes(row).decode("ascii") for row in sym)
         else:
-            text = frame_to_mono_text(frame, palette, (w, h), reverse_palette=reverse_palette)
+            frame = _preprocess(frame, detector=detector, edge_mode=edge_mode, invert=invert)
+            if fullcolor:
+                text = frame_to_color_ansi(
+                    frame, palette, (w, h),
+                    color_levels=color_levels, reverse_palette=reverse_palette,
+                )
+            else:
+                text = frame_to_mono_text(frame, palette, (w, h), reverse_palette=reverse_palette)
         if bar is not None:
             bar.next()
         yield text

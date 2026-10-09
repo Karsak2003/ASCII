@@ -37,6 +37,16 @@ from .converter import (
     symbols_to_text,
 )
 from .edges import EdgeDetector, blend_with_source, detect_edges
+from .edge_palette import (
+    EDGE_BASIC,
+    EDGE_EXTENDED,
+    EDGE_PALETTES,
+    edge_palette_symbols,
+    edge_symbols_to_text,
+    frame_to_edge_ansi,
+    frame_to_edge_symbols,
+    get_edge_palette,
+)
 from .media import MediaInfo, classify, iter_frames, probe
 from .palettes import (
     ASII,
@@ -73,6 +83,15 @@ __all__ = [
     "EdgeDetector",
     "detect_edges",
     "blend_with_source",
+    # Палитра ориентации контуров
+    "EDGE_BASIC",
+    "EDGE_EXTENDED",
+    "EDGE_PALETTES",
+    "get_edge_palette",
+    "edge_palette_symbols",
+    "frame_to_edge_symbols",
+    "edge_symbols_to_text",
+    "frame_to_edge_ansi",
     # Медиа
     "MediaInfo",
     "classify",

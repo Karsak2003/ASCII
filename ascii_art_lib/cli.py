@@ -54,8 +54,14 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--edges", nargs="?", const="canny", default=None, metavar="METHOD",
                    choices=["canny", "sobel"],
                    help="Выделение контуров перед конвертацией (canny по умолчанию либо sobel).")
-    p.add_argument("--edge-mode", default="lines", choices=["lines", "overlay"],
-                   help="Режим контуров: 'lines' — только линии, 'overlay' — поверх оригинала.")
+    p.add_argument("--edge-mode", default="lines", choices=["lines", "overlay", "palette"],
+                   help="Режим контуров: 'lines' — только линии (символы яркости), "
+                        "'overlay' — поверх оригинала, "
+                        "'palette' — собственная палитра ориентации контуров "
+                        "(наклон линии -> '/ - \\ |', изгибы -> '^ v < > ( ) [ ] { }').")
+    p.add_argument("--curve-threshold", type=float, default=0.5, metavar="X",
+                   help="Чувствительность определения изгиба для --edge-mode palette "
+                        "(меньше — больше скобочных символов; по умолчанию 0.5).")
     p.add_argument("--edge-low", type=int, default=50, metavar="N",
                    help="Нижний порог детекции контуров (по умолчанию 50).")
     p.add_argument("--edge-high", type=int, default=150, metavar="N",
@@ -125,6 +131,7 @@ def run(argv: Optional[List[str]] = None) -> int:
         low_threshold=args.edge_low,
         high_threshold=args.edge_high,
         blur_ksize=args.edge_blur,
+        curve_threshold=args.curve_threshold,
     )
 
     rc = 0

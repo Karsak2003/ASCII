@@ -306,3 +306,115 @@ def test_cli_edges_and_reverse_flags(shapes_png, tmp_path):
     rc = run([shapes_png, "--size", "60x20", "--no-color", "--edges", "sobel",
               "--edge-mode", "overlay", "-r", "--no-print", "--save", out])
     assert rc == 0 and os.path.isfile(out)
+
+
+# ---------------------------------------------------------------------------
+# Палитра ориентации контуров (edge_mode="palette"): символ = наклон линии
+# ---------------------------------------------------------------------------
+
+EDGE_ALLOWED = set("/|-\\^v<>()[]{}")
+
+
+def test_edge_palette_basic_line_slopes():
+    """Прямые линии разных наклонов кодируются соответствующими символами."""
+    from ascii_art_lib import frame_to_edge_symbols, edge_symbols_to_text
+
+    img = np.full((160, 320), 40, np.uint8)
+    cv2.line(img, (20, 140), (300, 20), 230, 3)    # восходящая '/'
+    cv2.line(img, (20, 20), (300, 140), 230, 3)    # нисходящая '\'
+    frame = cv2.cvtColor(img, cv2.COLOR_GRAY2BGR)
+    sym = frame_to_edge_symbols(frame, size=(80, 40), mode="basic")
+    text = edge_symbols_to_text(sym)
+    chars = set(text.replace("\n", "")) - {" "}
+    assert chars <= {"/", "-", "\\", "|"}          # basic-палитра
+    assert "/" in chars and "\\" in chars          # оба наклона распознаны
+
+
+def test_edge_palette_extended_curves():
+    """Круг в extended-режиме получает скобочные символы на изгибах."""
+    from ascii_art_lib import frame_to_edge_symbols, edge_symbols_to_text
+
+    img = np.full((200, 200), 40, np.uint8)
+    cv2.circle(img, (100, 100), 70, 230, -1)
+    frame = cv2.cvtColor(img, cv2.COLOR_GRAY2BGR)
+    base = edge_symbols_to_text(frame_to_edge_symbols(frame, size=(60, 30), mode="basic"))
+    ext = edge_symbols_to_text(frame_to_edge_symbols(frame, size=(60, 30), mode="extended"))
+    assert base != ext
+    ext_chars = set(ext.replace("\n", "")) - {" "}
+    assert ext_chars <= EDGE_ALLOWED
+    assert ext_chars & set("^v<>()[]{}")           # появились дуги/скобки
+
+
+def test_edge_palette_curve_threshold_effect():
+    """Меньший curve_threshold -> больше скобочных символов."""
+    from ascii_art_lib import convert_image
+
+    img = np.full((200, 200, 3), 40, np.uint8)
+    cv2.circle(img, (100, 100), 70, (230, 230, 230), -1)
+
+    def bracket_frac(t):
+        body = [c for c in t.replace("\n", "") if c != " "]
+        return sum(1 for c in body if c in "^v<>()[]{}") / max(1, len(body))
+
+    low = convert_image(img, size=(60, 30), fullcolor=False, edges=True,
+                        edge_mode="palette", curve_threshold=0.2)
+    high = convert_image(img, size=(60, 30), fullcolor=False, edges=True,
+                         edge_mode="palette", curve_threshold=2.0)
+    assert bracket_frac(low) >= bracket_frac(high)
+
+
+def test_convert_image_edge_palette_mono_and_color(shapes_png):
+    mono = convert_image(shapes_png, size=(60, 20), fullcolor=False,
+                         edges=True, edge_mode="palette")
+    assert set(mono.replace("\n", "")) - {" ", "\n"} <= EDGE_ALLOWED
+    assert any(c in "/|-\\" for c in mono)
+
+    color = convert_image(shapes_png, size=(60, 20), fullcolor=True,
+                          edges=True, edge_mode="palette")
+    assert "\033[38;2;" in color                   # линии окрашены оригиналом
+    import re
+    plain = re.sub(r"\033\[[0-9;]*m", "", color)
+    assert set(plain.replace("\n", "")) - {" "} <= EDGE_ALLOWED
+
+
+def test_edge_palette_invalid_mode_raises(shapes_png):
+    from ascii_art_lib import get_edge_palette
+    from ascii_art_lib.edge_palette import frame_to_edge_symbols
+
+    with pytest.raises(ValueError):
+        get_edge_palette("nope")
+    frame = cv2.imread(shapes_png)
+    with pytest.raises(ValueError):
+        frame_to_edge_symbols(frame, mode="nope")
+
+
+def test_edge_detector_apply_palette_mode():
+    from ascii_art_lib import EdgeDetector, edge_symbols_to_text
+
+    frame = np.zeros((100, 100, 3), np.uint8)
+    cv2.rectangle(frame, (20, 20), (80, 80), (255, 255, 255), 2)
+    det = EdgeDetector(method="sobel", low_threshold=30)
+    sym = det.apply(frame, mode="palette", size=(50, 25))
+    assert sym.dtype == np.uint8 and sym.shape == (25, 50)
+    text = edge_symbols_to_text(sym)
+    assert set(text.replace("\n", "")) - {" "} <= EDGE_ALLOWED
+
+
+def test_convert_animation_edge_palette(tmp_gif):
+    frames = list(convert_animation(tmp_gif, size=(40, 12), fullcolor=False,
+                                    edges=True, edge_mode="palette"))
+    assert len(frames) >= 1
+    for f in frames:
+        assert set(f.replace("\n", "")) - {" "} <= EDGE_ALLOWED
+
+
+def test_cli_edge_palette_flag(shapes_png, tmp_path):
+    from ascii_art_lib.cli import run
+
+    out = str(tmp_path / "p.txt")
+    rc = run([shapes_png, "--size", "60x20", "--no-color", "--edges",
+              "--edge-mode", "palette", "--curve-threshold", "0.3",
+              "--no-print", "--save", out])
+    assert rc == 0 and os.path.isfile(out)
+    data = open(out).read()
+    assert set(data.replace("\n", "")) - {" "} <= EDGE_ALLOWED

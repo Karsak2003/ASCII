@@ -82,6 +82,11 @@ asciiart photo.png --edges sobel --edge-low 30 --edge-high 100
 # контуры поверх оригинала
 asciiart photo.png --edges --edge-mode overlay
 
+# собственная палитра контуров: символ повторяет НАКЛОН линии (/ - \ |),
+# изогнутые участки получают парные скобки (^ v < > ( ) [ ] { })
+asciiart photo.png --edges --edge-mode palette --no-color
+asciiart photo.png --edges --edge-mode palette --curve-threshold 0.3
+
 # GIF/видео: проиграть в терминале
 asciiart anim.gif --play
 asciiart clip.mp4 --play --fps 15 --duration 10
@@ -105,7 +110,8 @@ asciiart a.png b.jpg c.gif --save out_dir/
 | `--color-levels N` | Уровней квантования на канал; по умолчанию выводится из размера палитры |
 | `-i, --invert` | Инвертировать яркость |
 | `--edges [canny\|sobel]` | Выделение контуров перед конвертацией (без аргумента — `canny`) |
-| `--edge-mode {lines,overlay}` | `lines` — только линии, `overlay` — контуры поверх оригинала |
+| `--edge-mode {lines,overlay,palette}` | `lines` — только линии, `overlay` — контуры поверх оригинала, `palette` — палитра ориентации контуров (символ = наклон линии) |
+| `--curve-threshold X` | Чувствительность определения изгиба для `--edge-mode palette` (0.5; меньше — больше скобочных символов) |
 | `--edge-low N` / `--edge-high N` | Пороги двойной фильтрации контуров (50 / 150) |
 | `--edge-blur K` | Гауссово размытие перед детекцией (5; `0` — выключить) |
 | `--max-pixels PX` | Лимит площади входного кадра для защиты RAM (32 000 000; `0` — без лимита) |
@@ -309,6 +315,51 @@ blended = blend_with_source(frame, emap, color=(0, 255, 255))
 ```
 
 Все реализации векторизованы через C-функции OpenCV (`filter2D`, `magnitude`, `dilate`) — сложность `O(H·W)` без Python-циклов по пикселям.
+
+### Палитра ориентации контуров (`edge_mode="palette"`)
+
+У этого режима **своя собственная палитра**, которая выражается *наклоном линии*,
+а не яркостью: символ выбирается по направлению касательной к контуру (угол
+градиента Sobel, 8 секторов по 22.5°), поэтому ASCII-линия визуально сохраняет
+свой наклон:
+
+| Наклон линии | Символы |
+|---|---|
+| ~0°…45° (восходящая) | `/` |
+| ~45°…90° (крутая/вертикальная) | `\|` |
+| ~90°…135° (пологая/горизонтальная) | `-` |
+| ~135°…180° (нисходящая) | `\\` |
+
+Для **более сложных (изогнутых) контуров** расширенный набор добавляет парные
+скобки: знак и направление кривизны оцениваются по Laplacian'у яркости,
+нормированному на локальный контраст, и изгибы получают символ, «раскрывающийся»
+в сторону вогнутости — `^ v < >` (горбы по сторонам света), `( ) [ ] { }`
+(вертикальные/горизонтальные/диагональные дуги). Прямые участки при этом
+остаются `/ - \ |`. Чувствительность переключения на скобки — `curve_threshold`
+(меньше — больше изогнутых символов).
+
+```python
+from ascii_art_lib import convert_image, frame_to_edge_symbols, edge_symbols_to_text
+
+# через высокоуровневый API (фон = цвет оригинала в цветном режиме)
+art = convert_image("photo.png", edges=True, edge_mode="palette", fullcolor=False)
+art_c = convert_image("photo.png", edges=True, edge_mode="palette", fullcolor=True)
+
+# низкоуровнево: кадр -> uint8-массив байтов -> текст
+sym = frame_to_edge_symbols(cv2.imread("photo.png"), size=(100, 50),
+                            mode="extended", curve_threshold=0.5)
+text = edge_symbols_to_text(sym)
+
+# справочники палитры
+from ascii_art_lib import EDGE_PALETTES, get_edge_palette, edge_palette_symbols
+EDGE_PALETTES            # {'basic': '/|-\\', 'extended': '/|-\\^v<>()[]{}'}
+get_edge_palette("basic")
+```
+
+CLI: `--edge-mode palette` плюс `--curve-threshold X`. В сочетании с `--no-color`
+получается чистый «рисовальщик линий», с цветом — линии красятся truecolor-цветом
+оригинала в этих точках. Модуль: `ascii_art_lib.edge_palette` (весь расчёт —
+табличные векторные операции NumPy/OpenCV, O(H·W)).
 
 ---
 
