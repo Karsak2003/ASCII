@@ -1,6 +1,7 @@
 # Python compiled files
 __pycache__/
 *.pyc
-
+ascii_art_lib.egg-info
 # Pytest cache
 .pytest_cache/
+.gitignore
