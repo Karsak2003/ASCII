@@ -27,6 +27,10 @@ ASII_3V = (
 
 ASII_4 = r" .;coPO?@#"
 
+ASII_5 = r" .:-=+*#%@"
+ASII_5V = r" .',:;~-+*#%@MWQ"
+
+
 #: Стандартная карта палитр по именам
 PALETTES: Dict[str, str] = {
     "asii": ASII,
@@ -35,6 +39,8 @@ PALETTES: Dict[str, str] = {
     "asii_3": ASII_3,
     "asii_3v": ASII_3V,
     "asii_4": ASII_4,
+    "asii_5": ASII_5,
+    "asii_5v": ASII_5V,
 }
 
 
