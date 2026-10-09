@@ -1,5 +1,2 @@
-
-ascii_art_lib\__pycache__
-ascii_art_lib.egg-info
+__pycache__/
 *.pyc
-\.venv

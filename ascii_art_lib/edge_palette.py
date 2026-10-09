@@ -226,18 +226,18 @@ def apply_edge_fill(
 # Компактный результат (H*W байт) не может хранить произвольный Unicode напрямую,
 # поэтому не-ASCII символы кодируются парой ESC(0x1B)+код. Пробел (0x20) — фон.
 _EXT_CODE: Dict[int, str] = {
-    1:  "\u203e",  # ‾ overline («чашка» горбом вверх)
-    2:  "\u2191",  # ↑ arrow up
-    3:  "\u2193",  # ↓ arrow down
-    4:  "\u2190",  # ← arrow left
-    5:  "\u2192",  # → arrow right
-    6:  "\u2550",  # ═ double horizontal
-    7:  "\u2551",  # ║ double vertical
-    8:  "\u2500",  # ─ light horizontal (запас)
-    9:  "\u2197",  # ↗ arrow up-right (добавлено)
-    10: "\u2198",  # ↘ arrow down-right (добавлено)
-    11: "\u2199",  # ↙ arrow down-left (добавлено)
-    12: "\u2196",  # ↖ arrow up-left (добавлено)
+    1: "\u203e",  # ‾ overline («чашка» горбом вверх)
+    2: "\u2191",  # ↑ arrow up
+    3: "\u2193",  # ↓ arrow down
+    4: "\u2190",  # ← arrow left
+    5: "\u2192",  # → arrow right
+    6: "\u2550",  # ═ double horizontal
+    7: "\u2551",  # ║ double vertical
+    8: "\u2500",  # ─ light horizontal (запас)
+    9: "\u2197",  # ↗ arrow north-east
+    10: "\u2198",  # ↘ arrow south-east
+    11: "\u2199",  # ↙ arrow south-west
+    12: "\u2196",  # ↖ arrow north-west
 }
 
 
@@ -640,6 +640,47 @@ def frame_to_edge_symbols(
 def edge_symbols_to_text(sym: np.ndarray) -> str:
     """Кодовая сетка uint8 -> готовый текст (поддержка escape-пар Unicode)."""
     return "\n".join(decode_grid(sym))
+
+
+def expand_edge_grid(grid: np.ndarray, width: int) -> np.ndarray:
+    """Разворачивает компактную кодовую сетку контуров в полноширинную.
+
+    Расширенная палитра хранит не-ASCII символы парами ESC+код, поэтому её
+    сетка имеет ширину ``2*w``; при прямом выводе текста такие строки вдвое
+    шире яркостного ASCII и **искажают пропорции** картинки. Эта функция
+    приводит любую сетку к форме ``(h, width)`` — по одному текстовому
+    символу на ячейку изображения:
+
+    * escape-пара ``(ESC, code)`` сворачивается в один Unicode-символ
+      (его байт-представление занимает чётные позиции сетки);
+    * одиночные ASCII-байты дублируются (занимают обе позиции пары);
+    * если сетка уже полноширинная — возвращаются первые ``width`` столбцов;
+    * иначе результат дополняется пробелами / обрезается до ``width``.
+
+    Args:
+        grid: кодовая сетка ``(h, w)`` или ``(h, 2w)`` dtype uint8.
+        width: целевая ширина вывода в символах (обычно ``w`` из ``size=(w, h)``).
+
+    Returns:
+        np.ndarray ``(h, width)`` dtype uint8 с одиночными байтами символов
+        (Unicode развёрнут в UTF-8), готовый к :func:`decode_grid` / печати.
+    """
+    g = np.asarray(grid, dtype=np.uint8)
+    if g.ndim != 2:
+        raise ValueError("Ожидается 2D кодовая сетка")
+    h = g.shape[0]
+    out = np.full((h, max(int(width), 0)), 0x20, dtype=np.uint8)
+    if g.size == 0 or out.size == 0:
+        return out
+
+    # Разворачиваем сетку построчно в список строк (escape-пары -> 1 символ)
+    rows = decode_grid(g)
+    for y, row in enumerate(rows):
+        s = row[: width]
+        if len(s):
+            b = s.encode("utf-8", "replace")
+            out[y, : len(b)] = np.frombuffer(b, dtype=np.uint8)[: width]
+    return out
 
 
 # ---------------------------------------------------------------------------
