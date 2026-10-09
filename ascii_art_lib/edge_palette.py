@@ -167,40 +167,56 @@ def apply_edge_fill(
     f = normalize_fill(fill)
     if f == " ":
         return grid
-
-    bg = ~line_mask  # маска фона, форма (h, w)
-
+    
+    bg = ~line_mask
+    
     if f == "brightness":
         bb = brightness_bytes
-        if bb is None or grid.shape[0] != bb.shape[0]:
+        if bb is None:
             return grid
-        # Проверка совместимости размеров с учётом unicode_grid
+        
+        # Проверяем совместимость высоты
+        if grid.shape[0] != bb.shape[0]:
+            return grid
+        
+        # Если unicode_grid=True, grid имеет ширину 2*w.
+        # brightness_bytes может иметь ширину w (обычная сетка) или 2*w.
         if unicode_grid:
-            if grid.shape[1] != 2 * bb.shape[1]:
+            expected_w = grid.shape[1] // 2
+            if bb.shape[1] == expected_w:
+                # Расширяем bb до 2*w, дублируя байты для выравнивания пар
+                bb_expanded = np.empty((bb.shape[0], grid.shape[1]), dtype=np.uint8)
+                bb_expanded[:, 0::2] = bb
+                bb_expanded[:, 1::2] = bb  # дубль для парности
+                bb = bb_expanded
+            elif bb.shape[1] != grid.shape[1]:
+                # Размеры несовместимы — оставляем пустой фон
                 return grid
-        else:
-            if grid.shape[1] != bb.shape[1]:
-                return grid
-
+        
         out = grid.copy()
         if unicode_grid:
-            even = out[:, 0::2]  # форма (h, w)
-            odd = out[:, 1::2]   # форма (h, w)
-            # Используем bg напрямую, без дополнительного срезания
-            even[bg] = bb[bg]
-            odd[bg] = bb[bg]
+            even = out[:, 0::2]
+            odd = out[:, 1::2]
+            ev_bb = bb[:, 0::2]
+            od_bb = bb[:, 1::2]
+            m_bg = bg[:, 0::2]
+            even[m_bg] = ev_bb[m_bg]
+            odd[m_bg] = od_bb[m_bg]
         else:
+            if bb.shape[1] != grid.shape[1]:
+                return grid
             out[bg] = bb[bg]
         return out
-
+    
+    # Обработка одиночного символа заполнения
     byte = _fill_byte(f)
     out = grid.copy()
     if unicode_grid:
-        even = out[:, 0::2]  # форма (h, w)
-        odd = out[:, 1::2]   # форма (h, w)
-        # Используем bg напрямую, без дополнительного срезания
-        even[bg] = byte
-        odd[bg] = byte
+        even = out[:, 0::2]
+        odd = out[:, 1::2]
+        m_bg = bg[:, 0::2]
+        even[m_bg] = byte
+        odd[m_bg] = byte  # одиночный символ: дубль байта (выравнивание пар)
     else:
         out[bg] = byte
     return out
