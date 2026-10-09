@@ -49,6 +49,36 @@ def quantize(values: np.ndarray, levels: int) -> np.ndarray:
     return (values.astype(np.uint16) * np.uint16(levels)) >> 8
 
 
+def frame_to_symbol_bytes(
+    frame: np.ndarray,
+    palette: str = DEFAULT_PALETTE,
+    size: Optional[Tuple[int, int]] = None,
+    *,
+    reverse_palette: bool = False,
+) -> np.ndarray:
+    """Яркостные символы палитры как **uint8-сетка** (H, W) — только ASCII-палитры.
+
+    Самый дешёвый по памяти и скорости путь: без Python-циклов, без объектов
+    строк (256-байтная LUT + ``np.take``). Используется контурными режимами с
+    заполнением фона «яркостью» и наложением контуров поверх ASCII-картинки.
+
+    Returns:
+        np.ndarray (h, w) dtype uint8 — байты символов; ``None``, если палитра
+        содержит многобайтовые (Unicode) символы — тогда пользуйтесь
+        :func:`frame_to_symbols`.
+    """
+    pal = get_palette(palette, reverse=reverse_palette)
+    if not is_ascii_palette(pal):
+        return None
+
+    if size is not None and (frame.shape[1], frame.shape[0]) != tuple(size):
+        frame = cv2.resize(frame, tuple(int(v) for v in size), interpolation=cv2.INTER_AREA)
+
+    gray = _to_gray(frame)
+    lut = build_lut(pal)                                        # bytes(256)
+    return np.take(np.frombuffer(lut, dtype=np.uint8), gray)    # C-скорость
+
+
 def frame_to_symbols(
     frame: np.ndarray,
     palette: str = DEFAULT_PALETTE,
