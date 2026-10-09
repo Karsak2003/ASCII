@@ -1,1 +1,4 @@
-(empty)
+*.pyc
+\.venv
+ascii_art_lib.egg-info
+ascii_art_lib\__pycache__
