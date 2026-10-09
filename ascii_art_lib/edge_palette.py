@@ -226,14 +226,18 @@ def apply_edge_fill(
 # Компактный результат (H*W байт) не может хранить произвольный Unicode напрямую,
 # поэтому не-ASCII символы кодируются парой ESC(0x1B)+код. Пробел (0x20) — фон.
 _EXT_CODE: Dict[int, str] = {
-    1: "\u203e",  # ‾ overline («чашка» горбом вверх)
-    2: "\u2191",  # ↑ arrow up
-    3: "\u2193",  # ↓ arrow down
-    4: "\u2190",  # ← arrow left
-    5: "\u2192",  # → arrow right
-    6: "\u2550",  # ═ double horizontal
-    7: "\u2551",  # ║ double vertical
-    8: "\u2500",  # ─ light horizontal (запас)
+    1:  "\u203e",  # ‾ overline («чашка» горбом вверх)
+    2:  "\u2191",  # ↑ arrow up
+    3:  "\u2193",  # ↓ arrow down
+    4:  "\u2190",  # ← arrow left
+    5:  "\u2192",  # → arrow right
+    6:  "\u2550",  # ═ double horizontal
+    7:  "\u2551",  # ║ double vertical
+    8:  "\u2500",  # ─ light horizontal (запас)
+    9:  "\u2197",  # ↗ arrow up-right (добавлено)
+    10: "\u2198",  # ↘ arrow down-right (добавлено)
+    11: "\u2199",  # ↙ arrow down-left (добавлено)
+    12: "\u2196",  # ↖ arrow up-left (добавлено)
 }
 
 
