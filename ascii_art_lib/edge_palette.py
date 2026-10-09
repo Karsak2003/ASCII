@@ -344,14 +344,31 @@ def frame_to_edge_ansi(
         row_sym, row_cid = sym_list[y], cid_list[y]
         row_ch, row_em = chg_list[y], emit_list[y]
         parts = []
-        cur = ""
+        run = ""                  # накопитель идущих подряд символов одного цвета
+        cur = ""                  # ANSI-префикс текущего цвета
+        prev_emitted = False      # был ли предыдущий символ эмитирован (не фон)
         for x in range(w):
             if not row_em[x]:
-                continue  # фон пропускаем (compact) — линии «плавают» на пустоте
-            if row_ch[x]:
+                # Фон: в compact-режиме пропускаем ЦЕЛИКОМ — но если после фона
+                # снова идёт линия, обязательно добавляем ровно один пробел-
+                # разделитель, иначе символы «склеиваются» и геометрия теряется.
+                if prev_emitted and bg_mode == "space":
+                    if run:
+                        parts.append(run)
+                        run = ""
+                    parts.append(" ")
+                prev_emitted = False
+                continue
+            if row_ch[x] or not prev_emitted:
+                # Новый цвет (или старт линии после фона) — закрываем текущий ран
+                if run:
+                    parts.append(run)
+                run = ""
                 cur = prefix_at[row_cid[x]]
-            parts.append(cur)
-            parts.append(chr(row_sym[x]))
+            run += chr(row_sym[x])
+            prev_emitted = True
+        if run:
+            parts.append(run)
         parts.append(reset)
         out_lines.append("".join(parts))
     return "\n".join(out_lines)
