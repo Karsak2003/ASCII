@@ -254,24 +254,40 @@ def convert_image(
     return frame_to_mono_text(frame, palette, (w, h), reverse_palette=reverse_palette)
 
 
-def _edge_canvas_ansi(canvas_u8: np.ndarray, frame_rgb: np.ndarray, levels: int,
-                      color_cols: Optional[np.ndarray] = None) -> str:
-    """ANSI-сборка яркостной ASCII-канвы (H, W) uint8 с квантованным цветом кадра.
+def _grid_rows(grid_full: np.ndarray) -> List[str]:
+    """Полноширинная кодовая сетка ``(h, w)`` uint8 -> список текстовых строк.
 
-    Используется для **окрашивания контура** (``edge_color=True``): позиции линий
-    уже замещены символами палитры ориентации, остальной фон — символы ``palette``.
-    Печатаются все позиции строки (пробелы сохраняются посимвольно), ANSI-префикс
-    ставится только при смене квантованного цвета (дельта-кодирование).
+    Каждая строка содержит ровно ``w`` символов (Unicode-символы развёрнуты в
+    UTF-8 по байтам внутри сетки), поэтому ширина вывода всегда равна целевой —
+    пропорции ASCII-картинки сохраняются при любом смешивании слоёв.
+    """
+    return [bytes(row).decode("utf-8", "replace")
+            for row in np.asarray(grid_full)]
+
+
+def _edge_overlay_ansi(canvas_u8: np.ndarray, frame_rgb: np.ndarray,
+                       levels: int, color_cols: Optional[np.ndarray] = None,
+                       edge_only_color: bool = False) -> str:
+    """Общий ANSI-рендер полноширинной канвы ``(h, w)`` квантованным цветом кадра.
+
+    Используется всеми контурными путями с яркостной канвой: **наложение ASCII-
+    контура поверх ASCII-изображения** (``edge_overlay=True``) и заполнение фона
+    ``"brightness"``. Печатаются ВСЕ позиции строки (пробелы фона сохраняются
+    посимвольно — геометрия монохромного и цветного вывода идентична), ANSI-
+    префикс ставится только при СМЕНЕ квантованного цвета (дельта-кодирование).
 
     Args:
-        canvas_u8: полноширинная кодовая сетка ``(h, w)`` uint8.
+        canvas_u8: готовая ASCII-канва ``(h, w)`` uint8 (яркостные символы,
+            возможно уже с замещёнными позициями контура).
         frame_rgb: кадр ``(h, w, 3)`` — источник цвета.
         levels: уровней квантования на канал.
-        color_cols: маска ``(h, w)`` — позиции, которые реально нужно красить
-            (обычно позиции контура; может покрывать обе колонки escape-пары).
-            ``None`` — красятся все позиции. Неокрашенные позиции печатаются
-            без ANSI-префиксов, что заметно уменьшает объём вывода.
+        color_cols: маска позиций, требующих цвета; ``None`` — красятся все.
+        edge_only_color: ``True`` — позиции вне ``color_cols`` принудительно
+            сбрасывают цвет (``\\033[0m``), т.е. окрашивается ТОЛЬКО контур, а
+            изображение остаётся неокрашенным.
     """
+    from .edge_palette import decode_grid
+
     h, w = canvas_u8.shape
     if frame_rgb.shape[0] != h or frame_rgb.shape[1] != w:
         import cv2 as _cv2
@@ -287,19 +303,24 @@ def _edge_canvas_ansi(canvas_u8: np.ndarray, frame_rgb: np.ndarray, levels: int,
            | (val[:, :, 1].astype(np.int32) << 8)
            | val[:, :, 0].astype(np.int32))
 
+    if edge_only_color and color_cols is not None:
+        # Вне контура цвет «сбрасываем» в специальный ключ -1 (пустой префикс)
+        cid = np.where(color_cols, cid, -1).astype(np.int32)
+
     # Префикс нужен там, где цвет отличается от предыдущей позиции строки
     # (в т.ч. на границе «фон/линия», когда за пробелом идёт окрашенный символ).
     change = np.empty(cid.shape, dtype=bool)
     change[:, 0] = True
     change[:, 1:] = cid[:, 1:] != cid[:, :-1]
-    if color_cols is not None and color_cols.shape == cid.shape:
+    if color_cols is not None and color_cols.shape == cid.shape and not edge_only_color:
         change &= color_cols          # красим только заданные позиции
 
     uniq_ids = np.unique(cid[change])
     prefix_at = dict(
         zip(
             uniq_ids.tolist(),
-            (f"\033[38;2;{(i >> 16) & 0xFF};{(i >> 8) & 0xFF};{i & 0xFF}m"
+            ((" " if i < 0 else
+              f"\033[38;2;{(i >> 16) & 0xFF};{(i >> 8) & 0xFF};{i & 0xFF}m")
              for i in uniq_ids.tolist()),
         )
     )
@@ -324,27 +345,37 @@ def _edge_canvas_ansi(canvas_u8: np.ndarray, frame_rgb: np.ndarray, levels: int,
             x += 1
         if run:
             parts.append(run)
-        parts.append("\033[0m")
+        # Сброс цвета только если в строке реально печатались цветовые коды —
+        # иначе пустые/неокрашенные строки не получают лишнего '\x1b[0m' и их
+        # ширина строго равна ширине монохромного вывода (пропорции сохранены).
+        if any(prefix_at[row_cid[x]].startswith("\033")
+               for x in range(min(w, len(row_cid))) if row_ch[x]):
+            parts.append("\033[0m")
         out_lines.append("".join(parts))
     return "\n".join(out_lines)
+
+
+# Обратная совместимость: старое имя могло использоваться извне
+_edge_canvas_ansi = _edge_overlay_ansi
 
 
 def _overlay_edges_on_text(text: str, line_mask: np.ndarray, sym: np.ndarray,
                            unicode_grid: bool) -> str:
     """Послойно встраивает символы палитры ориентации в готовый ANSI/текст.
 
-    Универсальный путь наложения контура поверх изображения: работает с любым
-    выводом яркостной конвертации (включая Unicode-палитры и truecolor-ANSI).
-    Символ в позиции линии замещается символом из кодовой сетки ``sym``
-    (escape-пары разворачиваются), ANSI-префиксы строки сохраняются.
+    Резервный путь наложения контура поверх изображения для Unicode-палитр
+    (байтовая канва невозможна): работает с любым выводом яркостной конвертации
+    (включая truecolor-ANSI). Символ в позиции линии замещается символом из
+    кодовой сетки ``sym`` (escape-пары разворачиваются), ANSI-префиксы строк
+    сохраняются.
     """
     from .edge_palette import decode_grid
 
     sym_rows = decode_grid(sym)
-    lines = text.split("\n")
+    lines_t = text.split("\n")
     out_lines = []
-    for y in range(len(lines)):
-        line = lines[y]
+    for y in range(len(lines_t)):
+        line = lines_t[y]
         # Разбор строки на токены: escape-последовательности и печатные символы
         cells = []  # (start, end) каждого символа-позиции
         i = 0
@@ -373,9 +404,8 @@ def _overlay_edges_on_text(text: str, line_mask: np.ndarray, sym: np.ndarray,
                     row[a:b] = list(ch)
             x += 1
         out_lines.append("".join(row))
-    remaining = lines[len(out_lines):]
+    remaining = lines_t[len(out_lines):]
     return "\n".join(out_lines + remaining)
-
 
 def _edge_palette_text(
     frame: np.ndarray,
@@ -445,7 +475,10 @@ def _edge_palette_text(
         eff_levels = palette_color_levels(pal_for_levels)
 
     sym, line_mask = _edge_symbol_maps(frame, size, **common)
-    unicode_grid = sym.shape[1] != size[0]
+    # Полноширинная escape-сетка: ширина ровно 2*w (ASCII-символы хранятся
+    # дублями байтов). Отличать её от basic-сетки ``(h, w)`` именно по ширине,
+    # а не «!= w» — иначе одиночные ASCII в extended-палитре дали бы ложный флаг.
+    unicode_grid = sym.ndim == 2 and sym.shape[1] == 2 * size[0]
 
     # --- Пропорции вывода ----------------------------------------------------
     # Расширенная палитра хранит Unicode-символы escape-парами (ESC+код), из-за
@@ -459,12 +492,15 @@ def _edge_palette_text(
         color_cols = np.column_stack([line_mask[:, 0::2]] * 2)
     else:
         color_cols = line_mask
-    sym_w = expand_edge_grid(sym, size[0])        # полноширинная сетка (h, w)
-    mask_full = color_cols                        # маска на тех же координатах
+    if unicode_grid:
+        sym_w = expand_edge_grid(sym, size[0])    # полноширинная сетка (h, w)
+        mask_full = color_cols                    # маска на тех же координатах
+    else:
+        sym_w = sym                               # basic: уже (h, w) ASCII-байты
+        mask_full = line_mask
 
     def _mono_out(grid_full: np.ndarray) -> str:
-        return "\n".join(bytes(row).decode("utf-8", "replace")
-                         for row in np.asarray(grid_full))
+        return "\n".join(_grid_rows(grid_full))
 
     # --- Яркостная канва (фон "brightness" либо наложение контура) -----------
     canvas_u8: Optional[np.ndarray] = None
@@ -492,81 +528,66 @@ def _edge_palette_text(
             needs_canvas = False
 
     if needs_canvas and canvas_u8 is not None:
+        # Все пути с канвой работают над **полноширинной** сеткой (h, w): ровно
+        # один текстовый символ на ячейку изображения — гарантия корректных
+        # пропорций. Байты UTF-8 Unicode-символов контура занимают несколько
+        # позиций одной ячейки, поэтому смешивание слоёв выполняется в байтовой
+        # сетке (позиции вне линий замещаются яркостными символами канвы), а не
+        # в декодированных строках — иначе многобайтовые символы «съедали» бы
+        # позиции и строки становились короче целевой ширины.
+        cw = int(size[0])
+        mask = line_mask[:, :cw] if line_mask.shape[1] >= cw else line_mask
         if overlay:
-            # Наложение: позиции линий замещают яркостные символы канвы
-            grid_full = expand_edge_grid(
-                _overlay_edges_on_canvas(sym, canvas_u8, line_mask), size[0])
+            # НАЛОЖЕНИЕ: ASCII-контур поверх ASCII-изображения. Базовым слоем
+            # служит яркостная канва; в позициях линий она ЗАМЕЩАЕТСЯ символом
+            # палитры ориентации. Позиции вне контура остаются нетронутыми, а
+            # пользовательский --edge-fill к наложению НЕ применяется (иначе
+            # затирался бы рисунок базового ASCII-изображения).
+            grid_full = sym_w.copy()
+            grid_full[~mask] = canvas_u8[~mask]
         else:
-            # Только заполнение фона яркостью (позиции линий сохраняются)
-            grid_full = expand_edge_grid(
-                apply_edge_fill(sym, line_mask, f, unicode_grid=unicode_grid,
-                                brightness_bytes=canvas_u8), size[0])
+            # Только заполнение фона яркостью (позиции линий сохраняются):
+            # яркостные символы канвы проставляются в пустых позициях фона.
+            bg_compact = apply_edge_fill(
+                sym, line_mask, f, unicode_grid=unicode_grid,
+                brightness_bytes=None)
+            bg_full = expand_edge_grid(bg_compact, cw) if unicode_grid else bg_compact
+            grid_full = bg_full.copy()
+            empty = (grid_full == 0x20) & ~mask          # пустые позиции фона
+            grid_full[empty] = canvas_u8[empty]
+
+        grid_rows = _grid_rows(grid_full)
+
         if fullcolor and colored_edge:
             # Канва участвует в выводе — красим весь кадр цветом оригинала
-            return _edge_canvas_ansi(grid_full, frame, int(eff_levels))
+            return _rows_ansi(grid_rows, frame, int(eff_levels))
         # Монохром / --no-edge-color: канва печатается без цветовых кодов
-        return _mono_out(grid_full)
+        return "\n".join(grid_rows)
 
     # --- Без канвы: символ заполнения (однотонная канва) или пустой фон ------
     if f != " ":
-        sym_w = expand_edge_grid(
-            apply_edge_fill(sym, line_mask, f, unicode_grid=unicode_grid),
-            size[0])
+        filled = apply_edge_fill(sym, line_mask, f, unicode_grid=unicode_grid)
+        sym_w = expand_edge_grid(filled, size[0]) if unicode_grid else filled
 
     if fullcolor and colored_edge:
-        return _edge_ansi_from_symbols(sym_w, frame, int(eff_levels),
-                                       color_cols=mask_full)
+        # Красим ТОЛЬКО позиции контура (фон остаётся неокрашенным)
+        return _edge_overlay_ansi(sym_w, frame, int(eff_levels),
+                                  color_cols=mask_full, edge_only_color=True)
     return _mono_out(sym_w)
 
 
-def _edge_symbol_maps(frame: np.ndarray, size: Tuple[int, int], **common):
-    """(кодовая сетка символов, маска линий) — единый проход детекции."""
-    from .edge_palette import _edge_maps
+def _rows_ansi(rows: List[str], frame_rgb: np.ndarray, levels: int) -> str:
+    """ANSI truecolor построчная сборка из готовых текстовых строк канвы.
 
-    m = _edge_maps(frame, size, **common)
-    return m["grid"], m["line_mask"]
-
-
-def _overlay_edges_on_canvas(edge_grid: np.ndarray, canvas_u8: np.ndarray,
-                             line_mask: np.ndarray) -> np.ndarray:
-    """Встраивает кодовую сетку контуров в яркостную ASCII-канву (H, W).
-
-    Позиции линий замещаются символами палитры ориентации (escape-пары
-    сохраняются), остальные позиции остаются символами обычной палитры.
+    Печатаются все позиции строки (пробелы сохраняются посимвольно), префикс
+    ставится только при смене квантованного цвета (дельта-кодирование).
+    Используется для вывода «контур поверх ASCII-изображения» и яркостного
+    заполнения фона, где сетка содержит смешанные Unicode-символы.
     """
-    h, w = canvas_u8.shape
-    out = np.full((h, w * 2), 0x20, dtype=np.uint8)
-    out[:, 0::2] = canvas_u8
-    eg = edge_grid
-    if eg.shape[1] == w * 2:                       # extended: пары байтов выровнены
-        sel = line_mask[:, 0::2]
-        out[sel, ::2] = eg[:, 0::2][sel]
-        out[sel, 1::2] = eg[:, 1::2][sel]
-    else:                                          # basic: одиночные байты
-        out[line_mask, 0::2] = eg[line_mask]
-    return out
-
-
-def _edge_ansi_from_symbols(sym: np.ndarray, frame_rgb: np.ndarray, levels: int) -> str:
-    """ANSI-сборка контурного ASCII из готовой карты символов.
-
-    Ключевое отличие от «компактного» режима :func:`frame_to_edge_ansi`: здесь
-    печатаются ВСЕ позиции строки (пробелы фона сохраняются посимвольно), поэтому
-    монохромный и цветной вывод имеют идентичную геометрию — никаких склеек
-    символов через фон. ANSI-префикс ставится только при СМЕНЕ квантованного
-    цвета (дельта-кодирование), что держит объём вывода компактным.
-
-    Args:
-        sym: кодовая сетка uint8 ``(h, w)`` или ``(h, 2w)`` (escape-пары Unicode)
-            из ``frame_to_edge_symbols`` / ``apply_edge_fill``.
-        frame_rgb: кадр того же размера ``(h, w, 3)`` — источник цвета.
-        levels: уровней квантования на канал.
-    """
-    h = sym.shape[0]
-    # Escape-пары Unicode делают сетку вдвое шире кадра — восстанавливаем w
-    unicode_grid = sym.ndim == 2 and sym.shape[1] != frame_rgb.shape[1]
-    w = sym.shape[1] // 2 if unicode_grid else sym.shape[1]
-    # Приводим размер кадра к размеру карты символов (гарантия против рассинхрона)
+    h = len(rows)
+    w = max((len(r) for r in rows), default=0)
+    if w == 0 or h == 0:
+        return ""
     if frame_rgb.shape[0] != h or frame_rgb.shape[1] != w:
         import cv2 as _cv2
         frame_rgb = _cv2.resize(frame_rgb, (int(w), int(h)), interpolation=_cv2.INTER_AREA)
@@ -581,8 +602,6 @@ def _edge_ansi_from_symbols(sym: np.ndarray, frame_rgb: np.ndarray, levels: int)
            | (val[:, :, 1].astype(np.int32) << 8)
            | val[:, :, 0].astype(np.int32))
 
-    # Префикс нужен там, где цвет отличается от предыдущей позиции строки
-    # (в т.ч. на границе «фон/линия», когда за пробелом идёт окрашенный символ).
     change = np.empty(cid.shape, dtype=bool)
     change[:, 0] = True
     change[:, 1:] = cid[:, 1:] != cid[:, :-1]
@@ -596,24 +615,17 @@ def _edge_ansi_from_symbols(sym: np.ndarray, frame_rgb: np.ndarray, levels: int)
         )
     )
 
-    from .edge_palette import decode_grid
-
-    sym_rows = decode_grid(sym)          # список строк текста (escape развёрнут)
-    cid_list = cid.tolist()
-    chg_list = change.tolist()
     out_lines = []
     for y in range(h):
-        row_sym = sym_rows[y]
-        row_cid = cid_list[y]
-        row_ch = chg_list[y]
+        row = rows[y]
         parts = []
         run = ""
         x = 0
-        for ch in row_sym:
-            if row_ch[x]:
+        for ch in row:
+            if x < w and change[y, x]:
                 if run:
                     parts.append(run)
-                run = prefix_at[row_cid[x]]
+                run = prefix_at[cid[y, x]]
             run += ch
             x += 1
         if run:
@@ -621,6 +633,55 @@ def _edge_ansi_from_symbols(sym: np.ndarray, frame_rgb: np.ndarray, levels: int)
         parts.append("\033[0m")
         out_lines.append("".join(parts))
     return "\n".join(out_lines)
+
+
+def _expand_canvas_merged(compact: np.ndarray, canvas_u8: np.ndarray,
+                          width: int) -> list:
+    """Компактная merged-сетка + яркостная канва -> список текстовых строк ``(h, w)``.
+
+    Для полноширинной (escape) сетки применяется :func:`expand_edge_grid`;
+    для basic-сетки ``(h, w)`` одиночные байты дополняются яркостными символами
+    канвы там, где контур не оставил символ (позиции вне линий).
+    """
+    if compact.shape[1] == width:      # basic: одиночные ASCII-байты
+        rows = decode_grid(compact)
+        crows = decode_grid(canvas_u8)
+        return ["".join(crow[j] if (ch == " " and j < len(crow)) else ch
+                        for j, ch in enumerate(row))
+                for row, crow in zip(rows, crows)]
+    return decode_grid(expand_edge_grid(compact, width))
+
+
+def _overlay_edges_on_canvas(edge_grid: np.ndarray, canvas_u8: np.ndarray,
+                             line_mask: np.ndarray) -> np.ndarray:
+    """Встраивает кодовую сетку контуров в яркостную ASCII-канву (H, W).
+
+    Возвращает компактную escape-сетку ``(H, 2W)``: чётные позиции — байты
+    яркостных символов ``canvas_u8``, в позициях линий пары байтов замещаются
+    символами палитры ориентации (escape-пары сохраняются). Разворот в
+    полноширинный текст — на стороне :func:`expand_edge_grid` (после наложения).
+    """
+    h, w = canvas_u8.shape
+    out = np.full((h, w * 2), 0x20, dtype=np.uint8)
+    out[:, 0::2] = canvas_u8
+    eg = edge_grid
+    if eg.shape[1] == w * 2:                       # extended: пары байтов выровнены
+        sel = line_mask[:, 0::2]
+        out[sel, ::2] = eg[:, 0::2][sel]
+        out[sel, 1::2] = eg[:, 1::2][sel]
+    else:                                          # basic: одиночные байты
+        rows = np.nonzero(line_mask)[0][:, None]
+        cols = np.nonzero(line_mask)[1][:, None]
+        out[rows, cols * 2] = eg[line_mask]
+    return out
+
+
+def _edge_symbol_maps(frame: np.ndarray, size: Tuple[int, int], **common):
+    """(кодовая сетка символов, маска линий) — единый проход детекции."""
+    from .edge_palette import _edge_maps
+
+    m = _edge_maps(frame, size, **common)
+    return m["grid"], m["line_mask"]
 
 
 # ---------------------------------------------------------------------------
