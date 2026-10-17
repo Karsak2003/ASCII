@@ -3,6 +3,6 @@
 /~temp
 /.venv
 t.py
-.vscode/launch.json
 .gitignore
 /__pycache__
+/.vscode

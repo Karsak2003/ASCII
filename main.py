@@ -92,6 +92,8 @@ img2cont        = lambda x: cv2.Canny(x, 100, 160)
 img2DoG         = lambda x, a=((3, 3),(7, 7)), s=0., t=1.0: (1+t)*img2blur(x, a[0][0], a[0][1], s)-t*img2blur(x, a[1][0], a[1][1], s)
 img2Laplacian   = lambda x: cv2.Laplacian(x, cv2.CV_64F)
 
+img2filter2D    = lambda x, a=kernel2: cv2.filter2D(src=x, ddepth=-1, kernel=a)
+
 def img2Angle(x:np.ndarray):
     GxImg_:np.ndarray = img2filter2D(x, a=Gx)
     GyImg_:np.ndarray = img2filter2D(x, a=Gy)
@@ -101,7 +103,7 @@ def img2Angle(x:np.ndarray):
 def img2ConsoleImg(image:np.ndarray, _a:str, w:int, h:int) -> np.ndarray[str]:
     """Преобразует изображение в массив строк цветного ASCII-арта с ANSI-кодами.
     
-    Масштабирует изображение до (w, h), квантует яркость для выбора символа из `_a`,
+    Масштабирует изображение до (w, h), квантует яркость для выбора символа из паллитры `_a`,
     а цвет пикселя кодирует через escape-последовательности `\\033[38;2;r;g;bm.`
 
     Args:
@@ -117,60 +119,66 @@ def img2ConsoleImg(image:np.ndarray, _a:str, w:int, h:int) -> np.ndarray[str]:
     tempImg:np.ndarray = cv2.resize(image, (w, h))
     
     tempImgGray:np.ndarray = I_Img2quantize(img2gray(tempImg)/255, 1/(len(_a)-1))
-    temp_f = np.vectorize(lambda x, y: _a[int(tempImgGray[x][y]//(1/(len(_a)-1))-1)])
-    # temp_f = np.vectorize(lambda x, y: _a[::-1][int(tempImgGray[x][y]//(1/(len(_a)-1))-1)])
-    ss = np.fromfunction(temp_f, tempImgGray.shape, dtype=int)
-    del tempImgGray, temp_f
     
+    bins:np.ndarray[float] = np.linspace(0, 1, len(_a))
+    indices:np.ndarray = np.digitize(tempImgGray, bins) - 1
+    indices:np.ndarray = np.clip(indices, 0, len(_a)-1)
+    
+    ss:np.ndarray = np.array(list(_a))[indices]
+    
+    del tempImgGray, bins, indices
+    
+    #Квантование цветов    
     tempImg_:np.ndarray = I_Img2quantize(tempImg/255, 1/(len(_a)-1)) 
 
+    #Нормализация данных
     tempImg_ -= tempImg_.min()
     tempImg_ /= tempImg_.max()
     tempImg_ =  tempImg_ * 255
-    
+    #Преобразование в целочисленный тип
     tempImg_ = np.astype(tempImg_, int)    
     
+    #
     _w, _h, _ = tempImg_.shape    
     
-
     paletteFond:list[str] = list(set(getPalette(tempImg_)))
+        
+    palette_dict = {color: idx for idx, color in enumerate(paletteFond)}
+    tempImg_indices:np.ndarray = np.zeros((_w, _h), dtype=int)
     
-    paletteBack:list[str] = list(set(getPalette(tempImg_, scale=4)))
+    for color, idx in palette_dict.items():
+        r_val, g_val, b_val, = map(int, color.split(';')) 
+        mask = (tempImg_[:, :, 0] == r_val) & (tempImg_[:, :, 1] == g_val) & (tempImg_[:, :, 2] == b_val)
+        tempImg_indices[mask] = idx
+        
+    tempImg_:np.ndarray = tempImg_indices
     
-    @np.vectorize
-    def f(x:int, y:int):
-        r:str = str(tempImg_[x][y][0])
-        g:str = str(tempImg_[x][y][1])
-        b:str = str(tempImg_[x][y][2]) 
-        return paletteFond.index(";".join((r, g, b)))
-    tempImg_:np.ndarray = np.fromfunction(f, (_w, _h), dtype=int)
+    # Сравниваем каждый пиксель с предыдущим по оси Y (горизонтальная строка)
+    shifted:np.ndarray = np.roll(tempImg_, 1, axis=1)
+    mask = np.ones((_w, _h), dtype=bool)
+    mask[:, 1:] = (tempImg_[:, 1:] != shifted[:, 1:])  # True, если цвет изменился или это первый столбец
     
-    @np.vectorize
-    def temp_f(x:int, y:int):
-        if y:
-            if tempImg_[x][y] != tempImg_[x][y-1]:
-                #return "\033[48;2;" + paletteFond[tempImg_[x][y]] + "m" + "\033[30m"
-                # return "\033[48;2;" + paletteBack[tempImg_[x][y]] + "m" + "\033[38;2;" + paletteFond[tempImg_[x][y]] + "m"
-                return "\033[38;2;" + paletteFond[tempImg_[x][y]] + "m"
-            else:
-                return ""
-        else:
-            # return "\033[48;2;" + paletteFond[tempImg_[x][y]] + "m" + "\033[30m"
-            # return "\033[48;2;" + paletteBack[tempImg_[x][y]] + "m" + "\033[38;2;" + paletteFond[tempImg_[x][y]] + "m"
-            return "\033[38;2;" + paletteFond[tempImg_[x][y]] + "m" 
+    # Генерируем массив ANSI-кодов для всех возможных индексов
+    ansi_codes = np.array(["\033[38;2;" + color + "m" for color in paletteFond], dtype=object)
     
-    ss_ = np.fromfunction(temp_f, (_w, _h), dtype=int)
-    del tempImg_, temp_f, f
+    # Применяем коды только там, где mask == True, иначе пустая строка
+    ss_:np.ndarray = np.where(mask, ansi_codes[tempImg_], "")
     
-    temp_f = np.vectorize(lambda x, y: ss_[x][y] + ss[x][y] + ("", ESCCLEANER)[int(y >= (len(ss[x])-1))])
-    strings:np.ndarray = np.fromfunction(temp_f, (_w, _h), dtype=int)
+    del tempImg_, palette_dict, tempImg_indices, mask, shifted, ansi_codes
     
-    del ss, ss_, _w, _h, _
-    return strings
+    # Объединяем ANSI-коды и символы
+    combined:np.ndarray = ss_ + ss
+    
+    # Добавляем ESCCLEANER только к последнему элементу каждой строки (по оси 1)
+    last_col_mask = np.zeros((_w, _h), dtype=bool)
+    last_col_mask[:, -1] = True
+    combined[last_col_mask] += ESCCLEANER
+    
+    del ss, ss_, _w, _h, _, last_col_mask
+    return combined
 
 Img2quantize    = lambda x, h: (np.ceil(x/h) + 0.5)*h                                   
 I_Img2quantize  = lambda x, k: np.ceil(x/k + 0.5)*k
-img2filter2D    = lambda x, a=kernel2: cv2.filter2D(src=x, ddepth=-1, kernel=a)
 #endregion IMG2
 
 Sigmoid = lambda x: 1/(1 + np.e**(-x))
@@ -191,13 +199,22 @@ def SelectContour(image:np.ndarray, size, *, x = 0.75) -> tuple[str, np.ndarray]
     out_contur:np.ndarray = cv2.resize(np.abs(contur//45), new_size)
     stroca:np.ndarray[str] = np.empty(out_contur.shape, str)
 
-    del contur, temp_contur, temp, x
+    del contur, temp_contur, temp
     
-    @np.vectorize
-    def translation2symbols(i:int, j:int):
-        x:int = out_contur[i][j]
-        return ["\\", "|", "/", "_"][int(x)] if not np.isnan(x) else " "
-    stroca = np.fromfunction(translation2symbols, out_contur.shape, dtype=int)
+    # @np.vectorize
+    # def translation2symbols(i:int, j:int):
+    #     x:int = out_contur[i][j]
+    #     return ["\\", "|", "/", "_"][int(x)] if not np.isnan(x) else " "
+    
+    # stroca = np.fromfunction(translation2symbols, out_contur.shape, dtype=int)
+    
+    symbols = np.array(["\\", "|", "/", "_"], dtype=object)
+    stroca = np.full(out_contur.shape, " ", dtype=object)
+    
+    valid_mask = ~np.isnan(out_contur) 
+    x_valid = out_contur[valid_mask].astype(int)
+    stroca[valid_mask] = symbols[x_valid]
+    
     return "\n".join(["".join(s) for s in stroca]), out_contur
 
 def DoG(image:np.ndarray, kSize:int, rSize:float, teta:float = 1., *, sigmaX_1:float=0., sigmaX_2:float=0.) -> np.ndarray:
@@ -206,32 +223,36 @@ def DoG(image:np.ndarray, kSize:int, rSize:float, teta:float = 1., *, sigmaX_1:f
     ksize_hight = np.int_(ksize_low*max(rSize, 1/rSize))
     return (1 + teta)*cv2.GaussianBlur(image, ksize_low, sigmaX_1) - teta*cv2.GaussianBlur(image, ksize_hight, sigmaX_2)
 
-def translet(image:np.ndarray, fileout:str = "out.txt", *, _a:Iterable | str = asii_1, wh = tuple(os.get_terminal_size())) -> str:    
-    w, h = wh
-    # strings = img2ConsoleImg(image, _a, w, h)
-    strings = img2ConsoleImg(image, _a, w, h)
-    return "\n".join(["".join(s) for s in strings.tolist()])
+#region Gets
+@np.vectorize
+def GetMitemRGB(i:int, j:int, fi:int) -> float: 
+    m:np.ndarray = ThresholdMap.Mat_8
+    k:np.ndarray = len(m)
+    return  S*(m[i%k][j%k] - 0.5)
 
-def csShape4imgShape(imgShape:tuple[int, int, Any], csShape:tuple[int, int, Any]) ->  tuple[int, int]:
-    """Рассчитывает размеры области консоли для вывода ASCII-арта с сохранением пропорций изображения.
+@np.vectorize
+def GetMitem(i:int, j:int) -> float: 
+    m:np.ndarray = ThresholdMap.Mat_8
+    k:np.ndarray = len(m)
+    return  S*(m[(i)%k][(j)%k] - 0.5)
 
-    Компенсирует прямоугольную форму символов терминала (множитель 2 для ширины)
-    и адаптирует ширину вывода под заданную высоту консоли.
-
-    Args:
-        imgShape (tuple[int, int, Any]): Кортеж размеров исходного изображения (высота, ширина, каналы).
-        csShape (tuple[int, int, Any]): Кортеж целевых размеров консоли (ширина, высота).
-
-    Returns:
-        tuple[int, int]: Кортеж (ширина, высота) для корректного отображения изображения в консоли.
+def getPalette(tempImg_:np.ndarray[int], *, scale:int=1) -> list[str]:
     """
-    imgW:int = imgShape[1]
-    imgH:int = imgShape[0]
-    imgTg:float = round(imgH/imgW, 2)
-    csW:int = csShape[0]
-    csH:int = csShape[1]
-    # print(imgTg)
-    return 2 * int(csH / imgTg), csH 
+    Извлекает уникальные RGB-значения из изображения в формате "R;G;B".
+    
+    Args:
+        tempImg_: массив изображения `shape(H, W, 3)` с int значениями
+        
+    Returns:
+        list[str]: плоский список строк вида "R;G;B"
+    """    
+    r:np.ndarray = (tempImg_[:, :, 0]//scale).astype(str)
+    g:np.ndarray = (tempImg_[:, :, 1]//scale).astype(str)
+    b:np.ndarray = (tempImg_[:, :, 2]//scale).astype(str)
+    
+    t:np.ndarray = np.char.add( np.char.add( np.char.add( np.char.add(r, ';'), g),  ';'), b)
+
+    return t.flatten().tolist()
 
 def getFileNames() -> list[str]:
     fileNames:tuple[str] = tk_filedialog.askopenfilenames(initialdir=FRESU, initialfile="img(0).png")
@@ -258,8 +279,45 @@ def getImagis(fileNames:list[str]):
                 cap.release()
                 yield (ind, t)
     return sel
+#endregion Gets
 
+def translet(image:np.ndarray, fileout:str = "out.txt", *, _a:Iterable | str = asii_1, wh = tuple(os.get_terminal_size())) -> str:
+    """Вызов преобразования изображения и упаковка выходного массива/списка строк в одну единную строку
 
+    Args:
+        image (np.ndarray): Изображение
+        fileout (str, optional): Имя выходного файла (не реализуеться, использовалось как заглушка). Defaults to "out.txt".
+        _a (Iterable | str, optional): Паллитра ASCII-символов. Defaults to asii_1.
+        wh (tuple[int, int], optional): Ширина и высота консоли. Defaults to tuple(os.get_terminal_size()).
+
+    Returns:
+        str: Строка с ASCII-art
+    """
+    w, h = wh
+    # strings = img2ConsoleImg(image, _a, w, h)
+    strings = img2ConsoleImg(image, _a, w, h)
+    return "\n".join(["".join(s) for s in strings.tolist()])
+
+def csShape4imgShape(imgShape:tuple[int, int, Any], csShape:tuple[int, int, Any]) ->  tuple[int, int]:
+    """Рассчитывает размеры области консоли для вывода ASCII-арта с сохранением пропорций изображения.
+
+    Компенсирует прямоугольную форму символов терминала (множитель 2 для ширины)
+    и адаптирует ширину вывода под заданную высоту консоли.
+
+    Args:
+        imgShape (tuple[int, int, Any]): Кортеж размеров исходного изображения (высота, ширина, каналы).
+        csShape (tuple[int, int, Any]): Кортеж целевых размеров консоли (ширина, высота).
+
+    Returns:
+        tuple[int, int]: Кортеж (ширина, высота) для корректного отображения изображения в консоли.
+    """
+    imgW:int = imgShape[1]
+    imgH:int = imgShape[0]
+    imgTg:float = round(imgH/imgW, 2)
+    csW:int = csShape[0]
+    csH:int = csShape[1]
+    # print(imgTg)
+    return 2 * int(csH / imgTg), csH 
 
 def link(uri, label=None):
     if label is None: 
@@ -276,7 +334,7 @@ def link(uri, label=None):
 def Main(ars = None, *, _a = asii_3v) -> None:
     
     fileNames:list[str] = getFileNames()
-    gen_queueImages:Generator[tuple[int, tuple[np.ndarray, None]], tuple[int, tuple[list[np.ndarray], float]]] = getImagis(fileNames)()
+    #gen_queueImages:Generator[tuple[int, tuple[np.ndarray, None]], tuple[int, tuple[list[np.ndarray], float]]] = getImagis(fileNames)()
 
     wh = tuple(os.get_terminal_size())
     
@@ -287,7 +345,7 @@ def Main(ars = None, *, _a = asii_3v) -> None:
     # print(f"\033[8;{wh[1]+5};{wh[0]+5}")
     
     
-    for ind, image in gen_queueImages:
+    for ind, image in getImagis(fileNames)():
         # _ts_orign:str = f"исходник: <a href=\"{fileNames[ind]}\">{fileNames[ind].split("/")[-1]}</a>"
         _ts_orign:str = f"исходник: {link(fileNames[ind], fileNames[ind].split("/")[-1])}"
         img, fps = image
