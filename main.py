@@ -175,35 +175,6 @@ img2filter2D    = lambda x, a=kernel2: cv2.filter2D(src=x, ddepth=-1, kernel=a)
 
 Sigmoid = lambda x: 1/(1 + np.e**(-x))
 
-@np.vectorize
-def GetMitemRGB(i:int, j:int, fi:int) -> float: 
-    m:np.ndarray = ThresholdMap.Mat_8
-    k:np.ndarray = len(m)
-    return  S*(m[i%k][j%k] - 0.5)
-@np.vectorize
-def GetMitem(i:int, j:int) -> float: 
-    m:np.ndarray = ThresholdMap.Mat_8
-    k:np.ndarray = len(m)
-    return  S*(m[(i)%k][(j)%k] - 0.5)
-
-def getPalette(tempImg_:np.ndarray, *, scale:int=1) -> list[int]:
-    """
-    Извлекает уникальные RGB-значения из изображения в формате "R;G;B".
-    
-    Args:
-        tempImg_: массив изображения `shape(H, W, 3)` с int значениями
-        
-    Returns:
-        list[str]: плоский список строк вида "R;G;B"
-    """    
-    r:np.ndarray = (tempImg_[:, :, 0]//scale).astype(str)
-    g:np.ndarray = (tempImg_[:, :, 1]//scale).astype(str)
-    b:np.ndarray = (tempImg_[:, :, 2]//scale).astype(str)
-    
-    t:np.ndarray = np.char.add( np.char.add( np.char.add( np.char.add(r, ';'), g),  ';'), b)
-
-    return t.flatten().tolist()
-
 def SelectContour(image:np.ndarray, size, *, x = 0.75) -> tuple[str, np.ndarray]:
     new_size:np.ndarray[int] = np.array((size[0], size[1]), dtype=int)
     
