@@ -8,20 +8,20 @@ import cv2.data
 import numpy as np  
 
 from ThresholdMap import *  # type: ignore[reportMissingImports] 
- 
+
+
+
 import os
 import os.path as PATH
 from PIL import Image
 from progress.bar import IncrementalBar, ChargingBar
 import time
 
-import matplotlib as mpl
-import matplotlib.pyplot as plt  
-from matplotlib.figure import Figure 
-from matplotlib.axes import Axes 
-import matplotlib.animation as animation
-
-# from PySide6 import QtWidgets, QtCore, QtGui
+# import matplotlib as mpl
+# import matplotlib.pyplot as plt  
+# from matplotlib.figure import Figure 
+# from matplotlib.axes import Axes 
+# import matplotlib.animation as animation
 
 from tkinter import filedialog as tk_filedialog
 #endregion IMPORT
@@ -45,7 +45,10 @@ asii_3v = r" .',:`;\"i!I^lrvjcx<>Yft*JL?TuynozaksFVXehCqKUdpSZbAwGPgEOHmDQNR%&BW
 #__________________________________________________________________________________
 asii_4 = r" .;coPO?@#"
 #‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾
-
+#___________________________________________________________________________________________________
+asii_5 = r' .:-=+*#%@'
+asii_5v = """ .'^":;|,?+*#$%@"""
+#‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾
 
 CWD = os.getcwd()
 FRESU = CWD + "\\~resu\\"
@@ -147,6 +150,7 @@ def img2ConsoleImg(image:np.ndarray, _a:str, w:int, h:int) -> np.ndarray[str]:
     tempImg_indices:np.ndarray = np.zeros((_w, _h), dtype=int)
     
     for color, idx in palette_dict.items():
+        
         r_val, g_val, b_val, = map(int, color.split(';')) 
         mask = (tempImg_[:, :, 0] == r_val) & (tempImg_[:, :, 1] == g_val) & (tempImg_[:, :, 2] == b_val)
         tempImg_indices[mask] = idx
@@ -235,6 +239,21 @@ def GetMitem(i:int, j:int) -> float:
     m:np.ndarray = ThresholdMap.Mat_8
     k:np.ndarray = len(m)
     return  S*(m[(i)%k][(j)%k] - 0.5)
+
+"""
+# Функции GetMitem и GetMitemRGB (если они используются)
+Если вы генерируете карту порогов через эти функции, замените их вызовы на одну векторизованную операцию тайлинга (размножения матрицы):
+Вместо поэлементного вызова:
+```
+    # Предположим, вам нужен массив размером (H, W)
+    k = len(ThresholdMap.Mat_8)
+    tile_h = (H + k - 1) // k
+    tile_w = (W + k - 1) // k
+
+    # Мгновенно создаем нужную матрицу без циклов
+    threshold_map = S * (np.tile(ThresholdMap.Mat_8, (tile_h, tile_w))[:H, :W] - 0.5)
+```
+"""
 
 def getPalette(tempImg_:np.ndarray[int], *, scale:int=1) -> list[str]:
     """
