@@ -125,7 +125,7 @@ if __name__ == "__main__":
         print(f"Родительский процесс: {os.getppid()}")
         print("Текущий шрифт:", get_current_console_font())
         print("Меняем шрифт на Courier New ...")
-        set_console_font(font_name="Courier New")
+        set_console_font("Courier New", (8, 16), 400)
         print("Шрифт успешно изменен!")
         print("После изменения:", get_current_console_font())
         # Проверка вывода (например, для ASCII-графики из вашего проекта)
