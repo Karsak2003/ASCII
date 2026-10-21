@@ -9,7 +9,7 @@ import numpy as np
 
 from ThresholdMap import *  # type: ignore[reportMissingImports] 
 
-from CSFont import set_console_font
+#from CSFont import set_console_font
 
 import os
 import os.path as PATH
