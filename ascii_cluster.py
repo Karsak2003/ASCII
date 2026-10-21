@@ -1,9 +1,13 @@
 #region Импорты и типы
+import os
 import json
 import numpy as np
 from typing import Dict, List, Tuple, Any, Optional
 from PIL import Image, ImageDraw, ImageFont
+
 from scipy import ndimage
+from scipy.spatial import ConvexHull
+
 from sklearn.preprocessing import StandardScaler
 from sklearn.cluster import KMeans
 from sklearn.decomposition import PCA
@@ -18,20 +22,23 @@ PaletteEntry = Dict[str, Any]
 #endregion Импорты и типы
 
 #region Параметры и константы
+OUTPUT_DIR: str = "output" 
+
 CELL_W: int = 40 # 20
 CELL_H: int = 60 # 30
 FONT_SIZE: int = 24
 FONT_PATH: str = "consola.ttf"
 THRESHOLD: int = 128
-K_RANGE: range = range(4, 20)
+K_RANGE: range = range(2, 20)
 
 USE_MANUAL_K: bool = False   # True — задать k вручную, False — автопоиск
 MANUAL_K: int = 7           # желаемое число кластеров
 
 # Метрики, по которым кластеризуем
 CLUSTER_FEATURES: List[str] = [
-    "aspect", "cx", "cy", "compactness",
-    "holes", "components",
+    "aspect", "cx", "cy", 
+    "holes", "components", "solidity", 
+    "extent", "circularity", "euler_number",
     "h_var", "v_var", "block_var",
     "edge_density", "h_sym", "v_sym",
 ]
@@ -81,8 +88,9 @@ def compute_metrics(mask: np.ndarray) -> MetricsDict:
     # Компактность
     kernel: np.ndarray = np.array([[0, 1, 0], [1, -4, 1], [0, 1, 0]])
     edges: np.ndarray = ndimage.convolve(mask.astype(int), kernel) != 0
-    perimeter: int = int(edges.sum())
-    compactness: float = (perimeter ** 2) / filled
+    
+    # perimeter: int = int(edges.sum())
+    # compactness: float = (perimeter ** 2) / filled
 
     # Топология - ИСПРАВЛЕНО
     labeled: np.ndarray
@@ -92,6 +100,11 @@ def compute_metrics(mask: np.ndarray) -> MetricsDict:
     bbox_mask[rmin:rmax+1, cmin:cmax+1] = True
     bg: np.ndarray = (~mask) & bbox_mask
     holes: int = 0
+    
+    solidity: float = compute_solidity(mask)
+    extent: float = compute_extent(mask)
+    circularity: float = compute_circularity(mask)
+    euler_number: float = float(compute_euler_number(mask))
     
     if bg.any():
         bg_labeled: np.ndarray
@@ -133,7 +146,10 @@ def compute_metrics(mask: np.ndarray) -> MetricsDict:
         "aspect":       aspect,
         "cx":           cx,
         "cy":           cy,
-        "compactness":  compactness,
+        "solidity":     solidity, 
+        "extent":       extent, 
+        "circularity":  circularity, 
+        "euler_number": euler_number,
         "holes":        float(holes),
         "components":   float(n_components),
         "h_var":        h_var,
@@ -144,6 +160,85 @@ def compute_metrics(mask: np.ndarray) -> MetricsDict:
         "v_sym":        v_sym,
     }
     return metrics
+
+def compute_solidity(mask: np.ndarray) -> float:
+    """Вычисляет solidity (отношение площади к площади выпуклой оболочки)."""
+    filled = int(mask.sum())
+    if filled == 0:
+        zero_metrics: MetricsDict = {
+        k: 0.0 for k in CLUSTER_FEATURES + ["brightness", "density",
+                                             "solidity", "extent",
+                                             "circularity", "euler_number"]
+        }
+        return zero_metrics
+    
+    # Находим координаты заполненных пикселей
+    ys, xs = np.where(mask)
+    points = np.column_stack([xs, ys])
+    
+    if len(points) < 3:
+        return 1.0  # Точка или линия — считаем выпуклой
+    
+    try:
+        hull = ConvexHull(points)
+        hull_area = hull.volume  # В 2D volume = area
+        return filled / hull_area if hull_area > 0 else 1.0
+    except Exception:
+        return 1.0
+
+def compute_extent(mask: np.ndarray) -> float:
+    """Вычисляет extent (отношение площади к площади bounding box)."""
+    filled = int(mask.sum())
+    if filled == 0:
+        return 0.0
+    
+    rows = np.any(mask, axis=1)
+    cols = np.any(mask, axis=0)
+    rmin, rmax = np.where(rows)[0][[0, -1]]
+    cmin, cmax = np.where(cols)[0][[0, -1]]
+    
+    bbox_area = (rmax - rmin + 1) * (cmax - cmin + 1)
+    return filled / bbox_area if bbox_area > 0 else 0.0
+
+def compute_circularity(mask: np.ndarray) -> float:
+    """Вычисляет circularity (насколько символ близок к кругу)."""
+    filled = int(mask.sum())
+    if filled == 0:
+        return 0.0
+    
+    kernel = np.array([[0, 1, 0], [1, -4, 1], [0, 1, 0]])
+    edges = ndimage.convolve(mask.astype(int), kernel) != 0
+    perimeter = int(edges.sum())
+    
+    if perimeter == 0:
+        return 0.0
+    
+    return 4 * np.pi * filled / (perimeter ** 2)
+
+def compute_euler_number(mask: np.ndarray) -> int:
+    """Вычисляет Euler number (компоненты - дырки)."""
+    labeled, n_components = ndimage.label(mask)
+    
+    # Считаем дырки (как в compute_metrics)
+    rows = np.any(mask, axis=1)
+    cols = np.any(mask, axis=0)
+    rmin, rmax = np.where(rows)[0][[0, -1]]
+    cmin, cmax = np.where(cols)[0][[0, -1]]
+    
+    bbox_mask = np.zeros_like(mask)
+    bbox_mask[rmin:rmax+1, cmin:cmax+1] = True
+    bg = (~mask) & bbox_mask
+    
+    holes = 0
+    if bg.any():
+        bg_labeled, n_bg = ndimage.label(bg)
+        for lbl in range(1, n_bg + 1):
+            comp = bg_labeled == lbl
+            if not (comp[0].any() or comp[-1].any() or
+                    comp[:, 0].any() or comp[:, -1].any()):
+                holes += 1
+    
+    return n_components - holes
 
 #endregion Рендер и метрики
 
@@ -168,7 +263,7 @@ def analyze() -> List[CharData]:
 
 #region Кластеризация
 def find_best_k(X: np.ndarray) -> Tuple[int, Dict[int, float]]:
-    """Подбирает k по silhouette score."""
+    """Подбирает k по silhouette score с elbow method."""
     best_k: int = 2
     best_score: float = -1.0
     scores: Dict[int, float] = {}
@@ -181,17 +276,23 @@ def find_best_k(X: np.ndarray) -> Tuple[int, Dict[int, float]]:
         scores[k] = score
         inertias[k] = float(km.inertia_)
         
-        # if score > best_score:
-        #     best_score = score
-        #     best_k = k
-        
-        if k > 2:
-            drop = inertias[k-1] - inertias[k]
-            prev_drop = inertias[k-2] - inertias[k-1]
-            if drop < prev_drop * 0.5 and best_k == 2:
+        # Elbow: ищем максимальное падение inertia
+        # Проверяем, что оба предыдущих ключа существуют
+        if (k - 1) in inertias and (k - 2) in inertias:
+            drop: float = inertias[k - 1] - inertias[k]
+            prev_drop: float = inertias[k - 2] - inertias[k - 1]
+            if prev_drop > 0 and drop < prev_drop * 0.5 and best_k == 2:
                 best_k = k - 1
-        
+    
+    # Если elbow не сработал, используем silhouette score
+    if best_k == 2:
+        for k, score in scores.items():
+            if score > best_score:
+                best_score = score
+                best_k = k
+    
     return best_k, scores
+
 
 
 def cluster_chars(data: List[CharData]) -> Tuple[
@@ -258,6 +359,28 @@ def describe_cluster(cluster_chars: List[CharData]) -> str:
         tags.append("разрозненные")
     if avg["holes"] < 0.1 and avg["components"] < 1.2:
         tags.append("сплошные")
+    
+    # Euler number
+    if avg["euler_number"] < -0.5:
+        tags.append("топологически сложные")
+    elif avg["euler_number"] > 1.0:
+        tags.append("многокомпонентные")
+        
+    # Форма (новые метрики)
+    if avg["solidity"] > 0.85:
+        tags.append("выпуклые")
+    elif avg["solidity"] < 0.6:
+        tags.append("вогнутые")
+
+    if avg["extent"] > 0.7:
+        tags.append("плотно заполняющие ячейку")
+    elif avg["extent"] < 0.3:
+        tags.append("малые относительно ячейки")
+
+    if avg["circularity"] > 0.7:
+        tags.append("округлые")
+    elif avg["circularity"] < 0.4:
+        tags.append("угловатые/линейные")
 
     # Направленность
     if avg["h_var"] > avg["v_var"] * 1.8 and avg["h_var"] > 0.005:
@@ -270,12 +393,6 @@ def describe_cluster(cluster_chars: List[CharData]) -> str:
         tags.append("симметричные")
     elif avg["h_sym"] < 0.5 and avg["v_sym"] < 0.5:
         tags.append("асимметричные")
-
-    # Компактность
-    if avg["compactness"] > 30:
-        tags.append("вытянутые")
-    elif avg["compactness"] < 18:
-        tags.append("компактные")
 
     # Равномерность
     if avg["block_var"] < 0.005:
@@ -336,7 +453,7 @@ def plot_clusters(
     ax.grid(alpha=0.3)
 
     plt.tight_layout()
-    plt.savefig("ascii_clusters.png", dpi=150)
+    plt.savefig(f"{OUTPUT_DIR}/ascii_clusters.png", dpi=150)
     plt.show()
     
 def plot_brightness_vs_metric(
@@ -375,17 +492,19 @@ def plot_brightness_vs_metric(
     cbar.set_label("Brightness", fontsize=11)
     
     plt.tight_layout()
-    plt.savefig(f"ascii_brightness_vs_{metric}.png", dpi=150)
+    plt.savefig(f"{OUTPUT_DIR}/ascii_brightness_vs_{metric}.png", dpi=150)
     plt.show()
     
 #endregion Визуализация
 
 #region Основная функция
 if __name__ == "__main__":
+    os.makedirs(OUTPUT_DIR, exist_ok=True)
+    
     data: List[CharData] = analyze()
 
     # Сохраняем полные метрики
-    with open("ascii_full.json", "w", encoding="utf-8") as f:
+    with open(f"{OUTPUT_DIR}/ascii_full.json", "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
 
     groups: ClusterGroup
@@ -432,9 +551,13 @@ if __name__ == "__main__":
     plot_brightness_vs_metric(data, "edge_density", "Edge Density (детализированность)")
 
     # Альтернативные варианты (раскомментируй при необходимости):
-    # plot_brightness_vs_metric(data, "holes", "Количество дырок")
-    # plot_brightness_vs_metric(data, "block_var", "Block Variance (равномерность)")
-    # plot_brightness_vs_metric(data, "compactness", "Compactness (компактность)")
+    plot_brightness_vs_metric(data, "holes", "Количество дырок")
+    plot_brightness_vs_metric(data, "block_var", "Block Variance (равномерность)")
+    plot_brightness_vs_metric(data, "solidity", "Solidity (выпуклость)")
+    plot_brightness_vs_metric(data, "extent", "Extent (заполненность bbox)")
+    plot_brightness_vs_metric(data, "circularity", "Circularity (округлость)")
+    plot_brightness_vs_metric(data, "euler_number", "Euler Number (топология)")
+    
 
     # Сохраняем палитру
     palette: List[PaletteEntry] = []
@@ -448,7 +571,7 @@ if __name__ == "__main__":
         }
         palette.append(entry)
     
-    with open("ascii_palette.json", "w", encoding="utf-8") as f:
+    with open(f"{OUTPUT_DIR}/ascii_palette.json", "w", encoding="utf-8") as f:
         json.dump(palette, f, ensure_ascii=False, indent=2)
     print(f"\n[i] Палитра сохранена в ascii_palette.json")
 #endregion Основная функция
