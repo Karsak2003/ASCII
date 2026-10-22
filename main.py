@@ -429,6 +429,9 @@ if __name__ == "__main__":
     Main(_a=asii_3v)
     print("\033[H\033[3J", end="", flush=True)
     input("Pleas press 'ENTER' to continue...")
+else:
+    print("hi")
+
 
     
     

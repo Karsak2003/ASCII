@@ -34,7 +34,7 @@ PaletteEntry = Dict[str, Any]
 OUTPUT_DIR: str = "output" 
 
 CELL_W: int = 50 # 20
-CELL_H: int = 100 # 30
+CELL_H: int = 75 # 30
 
 
 FONT_SIZE: int = 24
@@ -93,19 +93,24 @@ def should_include_char(ch: str) -> bool:
     return True
 
 def normalize_metrics(data: List[CharMetrics], to_percent: bool = False) -> List[CharMetrics]:
-    """Нормализует только актуальные метрики."""
-    metrics_to_normalize = CLUSTER_FEATURES + ["brightness", "density"]
+    """Нормализует только числовые метрики к [0, 1]."""
+    metrics_to_normalize = CharMetrics.ALL_NUMERIC_METRICS
     
+    # Матрица признаков
     X = np.array([[getattr(c, m) for m in metrics_to_normalize] for c in data])
+    
+    # MinMaxScaler с обрезкой выбросов
     scaler = MinMaxScaler(feature_range=(0, 1), clip=True)
     X_normalized = scaler.fit_transform(X)
     
+    # Записываем обратно
     for i, c in enumerate(data):
         for j, m in enumerate(metrics_to_normalize):
             value = float(X_normalized[i, j])
             if to_percent:
                 value *= 100
             setattr(c, m, round(value, 4))
+    
     return data
 #endregion Рендер и метрики
 
@@ -173,7 +178,8 @@ def cluster_chars(data: List[CharMetrics]) -> Tuple[Dict[int, List[CharMetrics]]
     chars = [c for c in data if c.char != " "]
     
     # Матрица признаков через getattr для объектов dataclass
-    X = np.array([[getattr(c, f) for f in CLUSTER_FEATURES] for c in chars])
+    features = CharMetrics.ALL_NUMERIC_METRICS
+    X = np.array([c.get_numeric_values(c) for c in chars])
     scaler = StandardScaler()
     X_scaled = scaler.fit_transform(X)
 
@@ -304,56 +310,106 @@ def plot_brightness_vs_metric(
 if __name__ == "__main__":
     os.makedirs(OUTPUT_DIR, exist_ok=True)
     
-    data = analyze()
-    data = normalize_metrics(data, to_percent=False)
+    # 1. Анализ символов
+    print("=" * 70)
+    print("ШАГ 1: АНАЛИЗ СИМВОЛОВ")
+    print("=" * 70)
+    data: List[CharMetrics] = analyze()
     
-    # Сохраняем полные метрики (используем to_dict() из dataclass)
+    # 2. Нормализация метрик
+    print("\n" + "=" * 70)
+    print("ШАГ 2: НОРМАЛИЗАЦИЯ МЕТРИК")
+    print("=" * 70)
+    #data = normalize_metrics(data, to_percent=False)
+    
+    # 3. Классификация ролей (раздел 3.3)
+    print("\n" + "=" * 70)
+    print("ШАГ 3: КЛАССИФИКАЦИЯ РОЛЕЙ (раздел 3.3)")
+    print("=" * 70)
+    roles: Dict[str, List[CharMetrics]] = {
+        "contour": [],
+        "hatching": [],
+        "fill": [],
+        "dithering": [],
+        "mixed": [],
+    }
+    for c in data:
+        role = c.classify_role()
+        roles[role].append(c)
+    
+    print(f"\n  Контурные (line_likeness > 0.7):    {len(roles['contour']):>3} символов")
+    print(f"  Штриховка (0.5 ≤ line ≤ 0.8):       {len(roles['hatching']):>3} символов")
+    print(f"  Заливка (line < 0.3, sym ≥ 0.7):    {len(roles['fill']):>3} символов")
+    print(f"  Дизеринг (complexity ≤ 0.3):        {len(roles['dithering']):>3} символов")
+    print(f"  Смешанные:                          {len(roles['mixed']):>3} символов")
+    
+    # 4. Вывод символов по ролям
+    for role, members in roles.items():
+        if not members:
+            continue
+        members.sort(key=lambda c: c.brightness)
+        chars_str = "".join(c.char for c in members)
+        avg_line = float(np.mean([c.line_likeness for c in members]))
+        avg_sym = float(np.mean([c.symmetry_score for c in members]))
+        print(f"\n  [{role.upper()}] {chars_str}")
+        print(f"    avg_line_likeness={avg_line:.3f}, avg_symmetry={avg_sym:.3f}")
+    
+    # 5. Экспорт в JSON
+    print("\n" + "=" * 70)
+    print("ШАГ 4: ЭКСПОРТ ДАННЫХ")
+    print("=" * 70)
+    
     with open(f"{OUTPUT_DIR}/ascii_full.json", "w", encoding="utf-8") as f:
         json.dump([c.to_dict() for c in data], f, ensure_ascii=False, indent=2)
-
-    groups, X_2d, labels, chars, scores, best_k = cluster_chars(data)
-
+    print(f"[i] Полные метрики: {OUTPUT_DIR}/ascii_full.json")
+    
+    # 6. Экспорт в CSV и HTML (интерактивная таблица)
+    from compute_metrics import export_to_csv, export_to_html
+    export_to_csv(data, f"{OUTPUT_DIR}/ascii_metrics.csv")
+    export_to_html(data, f"{OUTPUT_DIR}/ascii_metrics.html")
+    
+    # 7. Экспорт палитр по ролям
+    palette_by_role = []
+    for role, members in roles.items():
+        if not members:
+            continue
+        members.sort(key=lambda c: c.brightness)
+        palette_by_role.append({
+            "role": role,
+            "size": len(members),
+            "chars": [c.char for c in members],
+            "avg_brightness": float(np.mean([c.brightness for c in members])),
+            "avg_line_likeness": float(np.mean([c.line_likeness for c in members])),
+            "avg_symmetry_score": float(np.mean([c.symmetry_score for c in members])),
+            "avg_block_var": float(np.mean([c.block_var for c in members])),
+            "avg_texture_complexity": float(np.mean([c.texture_complexity for c in members])),
+        })
+    
+    with open(f"{OUTPUT_DIR}/ascii_palette_by_role.json", "w", encoding="utf-8") as f:
+        json.dump(palette_by_role, f, ensure_ascii=False, indent=2)
+    print(f"[i] Палитры по ролям: {OUTPUT_DIR}/ascii_palette_by_role.json")
+    
+    # 8. Кластеризация (опционально, для визуализации)
     print("\n" + "=" * 70)
-    print("СЕМАНТИЧЕСКАЯ ПАЛИТРА ASCII-СИМВОЛОВ")
+    print("ШАГ 5: КЛАСТЕРИЗАЦИЯ (визуализация)")
     print("=" * 70)
-
-    # Сортируем классы по средней яркости (ИСПРАВЛЕНО: c.brightness)
-    sorted_groups: List[Tuple[int, List[CharMetrics]]] = sorted(
+    groups, X_2d, labels, chars, scores, best_k = cluster_chars(data)
+    
+    sorted_groups = sorted(
         groups.items(),
         key=lambda kv: float(np.mean([c.brightness for c in kv[1]]))
     )
-
-    palette: List[PaletteEntry] = []
+    
+    print(f"\nОптимальное k={best_k}")
     for rank, (cid, members) in enumerate(sorted_groups, 1):
-        avg_b: float = float(np.mean([c.brightness for c in members]))
-        avg_d: float = float(np.mean([c.density for c in members]))
-        chars_str: str = "".join(c.char for c in members)
-        # Можно раскомментировать, если добавишь метод describe() в CharMetrics
-        desc: str = members[0].describe() 
-        
-        print(f"\n▶ КЛАСС {rank} | {desc}")
-        print(f"  размер: {len(members):>2}  |  "
-              f"яркость: {avg_b:>6.1f}  |  плотность: {avg_d:.3f}")
-        print(f"  символы: {chars_str}")
-
-        palette.append({
-            "rank": rank,
-            # "description": desc,
-            "chars": [c.char for c in members],
-            "avg_brightness": avg_b,
-            "avg_density": avg_d,
-        })
-
+        avg_b = float(np.mean([c.brightness for c in members]))
+        chars_str = "".join(c.char for c in members)
+        print(f"  Кластер {rank}: {chars_str}  (brightness={avg_b:.2f})")
+    
     plot_clusters(X_2d, labels, chars, scores, best_k)
     
-    # Раскомментируй для построения графиков:
-    # plot_brightness_vs_metric(data, "linearity", "Linearity (линеобразность)")
-    # plot_brightness_vs_metric(data, "holes", "Holes (дырки)")
-
-    with open(f"{OUTPUT_DIR}/ascii_palette.json", "w", encoding="utf-8") as f:
-        json.dump(palette, f, ensure_ascii=False, indent=2)
-    print(f"\n[i] Палитра сохранена в {OUTPUT_DIR}/ascii_palette.json")
-    
-    
+    print("\n" + "=" * 70)
+    print("ГОТОВО! Откройте output/ascii_metrics.html в браузере для интерактивного анализа.")
+    print("=" * 70)
     
 #endregion Основная функция
