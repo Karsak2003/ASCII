@@ -11,7 +11,7 @@ from sklearn.decomposition import PCA
 
 from skimage.morphology import skeletonize
 
-from symbol_parser.Char_Metrics import CharMetrics
+from char_metrics import CharMetrics
 
 # Типы данных
 CharData = Dict[str, Any]
@@ -44,7 +44,7 @@ PRESET_CUSTOM = {
 }
 
 PRESET_NULL = {
-    "EXCLUDE_CHARS": [" "],
+    "EXCLUDE_CHARS": [],
     "EXCLUDE_CATEGORIES": [],
     "INCLUDE_ONLY": []
 }
@@ -61,15 +61,11 @@ EXCLUDE_CHARS = ACTIVE_PRESET["EXCLUDE_CHARS"]
 EXCLUDE_CATEGORIES = ACTIVE_PRESET["EXCLUDE_CATEGORIES"]
 INCLUDE_ONLY = ACTIVE_PRESET["INCLUDE_ONLY"]
 
-
 CLUSTER_FEATURES: List[str] = [
-    "euler_number",    # Топология
-    "holes",           # Количество дырок
-    "block_var",       # Равномерность
-    "edge_density",    # Детализированность
-    "extent",          # Заполненность bbox
-    "h_var", "v_var",  # Направленность
-    "h_sym", "v_sym",  # Симметрия
+    "holes", "components", "euler_number",
+    "linearity", "continuity",
+    "hatch_regularity", "block_var", "edge_density",
+    "h_sym", "v_sym"
 ]
 
 #endregion Параметры и константы
@@ -79,23 +75,17 @@ def compute_solidity(mask: np.ndarray) -> float:
     """Вычисляет solidity (отношение площади к площади выпуклой оболочки)."""
     filled = int(mask.sum())
     if filled == 0:
-        zero_metrics: MetricsDict = {
-        k: 0.0 for k in CLUSTER_FEATURES + ["brightness", "density",
-                                             "solidity", "extent",
-                                             "circularity", "euler_number"]
-        }
-        return zero_metrics
+        return 0.0
     
-    # Находим координаты заполненных пикселей
     ys, xs = np.where(mask)
     points = np.column_stack([xs, ys])
     
     if len(points) < 3:
-        return 1.0  # Точка или линия — считаем выпуклой
+        return 1.0
     
     try:
         hull = ConvexHull(points)
-        hull_area = hull.volume  # В 2D volume = area
+        hull_area = float(hull.volume)
         return filled / hull_area if hull_area > 0 else 1.0
     except Exception:
         return 1.0
@@ -238,116 +228,67 @@ def compute_edge_contrast(mask: np.ndarray) -> float:
     diff = np.abs(mask.astype(float) - blurred)
     return float(diff[mask].mean())
 
-def compute_metrics(mask: np.ndarray) -> MetricsDict:
-    """Вычисляет все метрики для бинарной маски."""
-    filled: int = int(mask.sum())
-    total: int = mask.size
+def compute_metrics(mask: np.ndarray, ch: str, code: int, category: str) -> CharMetrics:
+    filled = int(mask.sum())
+    total = mask.size
     
     if filled == 0:
-        zero_metrics: MetricsDict = {k: 0.0 for k in CLUSTER_FEATURES + ["brightness", "density"]}
-        return zero_metrics
+        return CharMetrics(char=ch, ord=code, category=category)
 
-    # Bounding box
-    rows: np.ndarray = np.any(mask, axis=1)
-    cols: np.ndarray = np.any(mask, axis=0)
-    row_indices: np.ndarray = np.where(rows)[0]
-    col_indices: np.ndarray = np.where(cols)[0]
-    rmin: int = int(row_indices[0])
-    rmax: int = int(row_indices[-1])
-    cmin: int = int(col_indices[0])
-    cmax: int = int(col_indices[-1])
-    bbox_w: int = cmax - cmin + 1
-    bbox_h: int = rmax - rmin + 1
-    aspect: float = bbox_w / bbox_h if bbox_h else 0.0
-
-    # Центр масс
-    ys: np.ndarray
-    xs: np.ndarray
-    ys, xs = np.where(mask)
-    cx: float = float(xs.mean()) / CELL_W
-    cy: float = float(ys.mean()) / CELL_H
-
-    # Компактность
-    kernel: np.ndarray = np.array([[0, 1, 0], [1, -4, 1], [0, 1, 0]])
-    edges: np.ndarray = ndimage.convolve(mask.astype(int), kernel) != 0
+    # Топология
+    labeled, n_components = ndimage.label(mask)
+    rows = np.any(mask, axis=1)
+    cols = np.any(mask, axis=0)
+    rmin, rmax = np.where(rows)[0][[0, -1]]
+    cmin, cmax = np.where(cols)[0][[0, -1]]
     
-    # perimeter: int = int(edges.sum())
-    # compactness: float = (perimeter ** 2) / filled
-
-    # Топология - ИСПРАВЛЕНО
-    labeled: np.ndarray
-    n_components: int
-    labeled, n_components = ndimage.label(mask)  # Убран return_num=True
-    bbox_mask: np.ndarray = np.zeros_like(mask)
+    bbox_mask = np.zeros_like(mask)
     bbox_mask[rmin:rmax+1, cmin:cmax+1] = True
-    bg: np.ndarray = (~mask) & bbox_mask
-    holes: int = 0
-    
-    solidity: float = compute_solidity(mask)
-    extent: float = compute_extent(mask)
-    circularity: float = compute_circularity(mask)
-    euler_number: float = float(compute_euler_number(mask))
-    
+    bg = (~mask) & bbox_mask
+    holes = 0
     if bg.any():
-        bg_labeled: np.ndarray
-        n_bg: int
-        bg_labeled, n_bg = ndimage.label(bg)  # Убран return_num=True
+        bg_labeled, n_bg = ndimage.label(bg)
         for lbl in range(1, n_bg + 1):
-            comp: np.ndarray = bg_labeled == lbl
-            if not (comp[0].any() or comp[-1].any() or
-                    comp[:, 0].any() or comp[:, -1].any()):
+            comp = bg_labeled == lbl
+            if not (comp[0].any() or comp[-1].any() or comp[:, 0].any() or comp[:, -1].any()):
                 holes += 1
 
-    # Проекционные дисперсии
-    h_proj: np.ndarray = mask.sum(axis=1).astype(float)
-    v_proj: np.ndarray = mask.sum(axis=0).astype(float)
-    h_var: float = float(h_proj.var()) / (filled ** 2)
-    v_var: float = float(v_proj.var()) / (filled ** 2)
+    # Края для edge_density и симметрий
+    kernel = np.array([[0, 1, 0], [1, -4, 1], [0, 1, 0]])
+    edges = ndimage.convolve(mask.astype(int), kernel) != 0
 
     # Block variance
-    mid_y: int = CELL_H // 2
-    mid_x: int = CELL_W // 2
-    blocks: List[float] = [
+    mid_y, mid_x = CELL_H // 2, CELL_W // 2
+    blocks = [
         float(mask[:mid_y, :mid_x].sum()),
         float(mask[:mid_y, mid_x:].sum()),
         float(mask[mid_y:, :mid_x].sum()),
         float(mask[mid_y:, mid_x:].sum()),
     ]
-    block_var: float = float(np.var(blocks)) / (filled ** 2)
+    block_var = float(np.var(blocks)) / (filled ** 2)
 
-    # Edge density
-    edge_density: float = float(edges.sum()) / filled
+    # Вычисление ключевых метрик
+    linearity = compute_linearity(mask)
+    continuity = compute_continuity(mask)
+    hatch_regularity = compute_hatch_regularity(mask)
     
-    # Симметрии
-    h_sym: float = float(np.minimum(mask, mask[:, ::-1]).sum()) / filled
-    v_sym: float = float(np.minimum(mask, mask[::-1, :]).sum()) / filled
+    edge_density = float(edges.sum()) / filled
+    h_sym = float(np.minimum(mask, mask[:, ::-1]).sum()) / filled
+    v_sym = float(np.minimum(mask, mask[::-1, :]).sum()) / filled
 
-    metrics: MetricsDict = {
-        "brightness":   float(filled),
-        "density":      filled / total,
-        "aspect":       aspect,
-        "cx":           cx,
-        "cy":           cy,
-        "solidity":     solidity, 
-        "extent":       extent, 
-        "circularity":  circularity, 
-        "euler_number": euler_number,
-        "holes":        float(holes),
-        "components":   float(n_components),
-        "h_var":        h_var,
-        "v_var":        v_var,
-        "block_var":    block_var,
-        "edge_density": edge_density,
-        "h_sym":        h_sym,
-        "v_sym":        v_sym,
-    }
     return CharMetrics(
         brightness=float(filled),
-        density=filled / total,
+        density=float(filled / total),
         holes=holes,
         components=n_components,
-        euler_number=euler_number,
-        # ... остальные поля ...
+        euler_number=n_components - holes,
+        linearity=linearity,
+        continuity=continuity,
+        hatch_regularity=hatch_regularity,
+        block_var=block_var,
+        edge_density=edge_density,
+        h_sym=h_sym,
+        v_sym=v_sym,
         char=ch,
         ord=code,
         category=category

@@ -1,111 +1,73 @@
 from dataclasses import dataclass, field, asdict
 from typing import Optional
 
-
 @dataclass
 class CharMetrics:
-    """Характеристики ASCII-символа."""
+    """Характеристики ASCII-符号а, оптимизированные для ASCII-арта."""
     
-    # Основные метрики
+    # Основные
     brightness: float = 0.0
     density: float = 0.0
-    
-    # Геометрия
-    aspect: float = 0.0
-    cx: float = 0.0
-    cy: float = 0.0
-    
-    # Форма (новые метрики)
-    solidity: float = 0.0
-    extent: float = 0.0
-    circularity: float = 0.0
     
     # Топология
     holes: int = 0
     components: int = 0
     euler_number: int = 0
     
-    # Направленность
-    h_var: float = 0.0
-    v_var: float = 0.0
+    # Структура и контуры (ASCII-специфичные)
+    linearity: float = 0.0
+    continuity: float = 0.0
     
-    # Текстура
+    # Текстура и заливка
+    hatch_regularity: float = 0.0
     block_var: float = 0.0
     edge_density: float = 0.0
-    edge_contrast: float = 0.0
-    hatch_regularity: float = 0.0
     
     # Симметрия
     h_sym: float = 0.0
     v_sym: float = 0.0
-    
-    # Новые метрики для ASCII-арта
-    linearity: float = 0.0
-    continuity: float = 0.0
-    orientation: float = 0.0
-    stroke_width: float = 0.0
-    branching: int = 0
     
     # Метаданные
     char: str = ""
     ord: int = 0
     category: str = ""
     
-    # Композитные метрики (вычисляемые свойства)
+    # Динамические поля для визуализации
+    pca_x: float = 0.0
+    pca_y: float = 0.0
+
     @property
     def contour_score(self) -> float:
         """Пригодность для контуров."""
-        return self.linearity * self.continuity * self.edge_contrast
-    
+        return self.linearity * self.continuity * self.edge_density
+
     @property
     def fill_score(self) -> float:
-        """Пригодность для заливки."""
+        """Пригодность для равномерной заливки/дизеринга."""
         return (1 - self.linearity) * self.hatch_regularity * (1 - self.block_var)
-    
-    @property
-    def is_hollow(self) -> bool:
-        """Имеет ли символ дырки."""
-        return self.holes > 0
-    
-    @property
-    def is_symmetric(self) -> bool:
-        """Симметричен ли символ."""
-        return self.h_sym > 0.85 and self.v_sym > 0.85
-    
-    @property
-    def orientation_label(self) -> str:
-        """Текстовое описание ориентации."""
-        if self.h_var > self.v_var * 1.5:
-            return "horizontal"
-        elif self.v_var > self.h_var * 1.5:
-            return "vertical"
-        return "neutral"
-    
+
     def describe(self) -> str:
         """Генерирует текстовое описание символа."""
         tags = []
-        
-        if self.is_hollow:
-            tags.append(f"дырчатый ({self.holes} дырок)")
+        if self.holes > 0:
+            tags.append(f"дырчатый ({self.holes})")
         else:
             tags.append("сплошной")
-        
-        if self.is_symmetric:
+            
+        if self.linearity > 0.7:
+            tags.append("линейный")
+        if self.continuity < 0.8 and self.components > 1:
+            tags.append("разрозненный")
+        if self.h_sym > 0.8 and self.v_sym > 0.8:
             tags.append("симметричный")
-        
-        if self.linearity > 0.8:
-            tags.append(f"линейный ({self.orientation_label})")
-        
-        if self.contour_score > 0.5:
-            tags.append("хорош для контуров")
-        
-        if self.fill_score > 0.5:
-            tags.append("хорош для заливки")
-        
+        if self.contour_score > 0.4:
+            tags.append("контурный")
+        if self.fill_score > 0.4:
+            tags.append("текстурный")
+            
         return ", ".join(tags)
-    
+
     def to_dict(self) -> dict:
-        """Конвертация в словарь для JSON."""
         return asdict(self)
     
     @classmethod

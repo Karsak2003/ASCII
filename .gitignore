@@ -1,9 +1,10 @@
-/image.png
+
 /~resu
 /~temp
 /.venv
-t.py
-.gitignore
+
 /__pycache__
 /.vscode
 /output
+*.pyc
+*/__pycache__

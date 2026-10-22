@@ -1,6 +1,7 @@
 #region Импорты и типы
 import os
 import json
+from pickle import TRUE
 import numpy as np
 from typing import Dict, List, Tuple, Any, Optional
 from PIL import Image, ImageDraw, ImageFont
@@ -24,8 +25,7 @@ from compute_metrics import (
 )
 
 # Типы данных
-CharData = Dict[str, Any]
-ClusterGroup = Dict[int, List[CharData]]
+ClusterGroup = Dict[int, List[CharMetrics]]
 MetricsDict = Dict[str, float]
 PaletteEntry = Dict[str, Any]
 #endregion Импорты и типы
@@ -33,8 +33,8 @@ PaletteEntry = Dict[str, Any]
 #region Параметры и константы
 OUTPUT_DIR: str = "output" 
 
-CELL_W: int = 40 # 20
-CELL_H: int = 60 # 30
+CELL_W: int = 50 # 20
+CELL_H: int = 100 # 30
 
 
 FONT_SIZE: int = 24
@@ -42,8 +42,8 @@ FONT_PATH: str = "consola.ttf"
 THRESHOLD: int = 128
 K_RANGE: range = range(3, 12)
 
-USE_MANUAL_K: bool = False   # True — задать k вручную, False — автопоиск
-MANUAL_K: int = 7           # желаемое число кластеров
+USE_MANUAL_K: bool = True   # True — задать k вручную, False — автопоиск
+MANUAL_K: int = 8           # желаемое число кластеров
 
 #endregion Параметры и константы
 
@@ -75,7 +75,6 @@ def get_char_category(ch: str) -> str:
     else:
         return "other"
 
-
 def should_include_char(ch: str) -> bool:
     """Проверяет, должен ли символ быть включён в анализ."""
     # Если INCLUDE_ONLY не пуст, проверяем только его
@@ -93,85 +92,46 @@ def should_include_char(ch: str) -> bool:
     
     return True
 
-def normalize_metrics(data: List[CharData], to_percent: bool = False) -> List[CharData]:
-    """
-    Нормализует все числовые метрики к [0, 1] или [0, 100].
+def normalize_metrics(data: List[CharMetrics], to_percent: bool = False) -> List[CharMetrics]:
+    """Нормализует только актуальные метрики."""
+    metrics_to_normalize = CLUSTER_FEATURES + ["brightness", "density"]
     
-    Args:
-        data: список словарей с метриками
-        to_percent: если True, умножает на 100 (проценты)
-    
-    Returns:
-        нормализованные данные
-    """
-    # Список метрик для нормализации (без category)
-    metrics_to_normalize = [
-        "brightness", "density",
-        "aspect", "cx", "cy",
-        "solidity", "extent", "circularity",
-        "holes", "components", "euler_number",
-        "h_var", "v_var", "block_var",
-        "edge_density", "h_sym", "v_sym",
-    ]
-    
-    # Матрица признаков
-    X = np.array([[c[m] for m in metrics_to_normalize] for c in data])
-    
-    # MinMaxScaler с обрезкой выбросов
+    X = np.array([[getattr(c, m) for m in metrics_to_normalize] for c in data])
     scaler = MinMaxScaler(feature_range=(0, 1), clip=True)
     X_normalized = scaler.fit_transform(X)
     
-    # Записываем обратно
     for i, c in enumerate(data):
         for j, m in enumerate(metrics_to_normalize):
             value = float(X_normalized[i, j])
             if to_percent:
                 value *= 100
-            c[m] = round(value, 4)
-    
+            setattr(c, m, round(value, 4))
     return data
-
 #endregion Рендер и метрики
 
 #region Анализ символов
-def analyze() -> List[CharData]:
+def analyze() -> List[CharMetrics]:
     """Анализ ASCII-символов с фильтрацией."""
     try:
-        font: ImageFont.FreeTypeFont = ImageFont.truetype(FONT_PATH, FONT_SIZE)
+        font = ImageFont.truetype(FONT_PATH, FONT_SIZE)
     except OSError:
         font = ImageFont.load_default()
 
-    results: List[CharData] = []
-    excluded_count: int = 0
+    results: List[CharMetrics] = []
+    excluded_count = 0
     
     for code in range(32, 127):
-        ch: str = chr(code)
-        
-        # Фильтрация
+        ch = chr(code)
         if not should_include_char(ch):
             excluded_count += 1
             continue
         
-        mask: np.ndarray = render_char(ch, font)
-        m: MetricsDict = compute_metrics(mask)
-        m["char"] = ch
-        m["ord"] = code
-        m["category"] = get_char_category(ch)  # Добавляем категорию
-        results.append(m)
-    
-    print(f"[i] Проанализировано: {len(results)} символов, исключено: {excluded_count}")
-    return results
-
-def analyze() -> List[CharMetrics]:
-    results: List[CharMetrics] = []
-    for code in range(32, 127):
-        ch = chr(code)
-        if not should_include_char(ch):
-            continue
         mask = render_char(ch, font)
         category = get_char_category(ch)
         metrics = compute_metrics(mask, ch, code, category)
         results.append(metrics)
+
+    print(f"[i] Проанализировано: {len(results)} символов, исключено: {excluded_count} ")
     return results
 #endregion Анализ символов
 
@@ -208,139 +168,52 @@ def find_best_k(X: np.ndarray) -> Tuple[int, Dict[int, float]]:
     
     return best_k, scores
 
-def cluster_chars(data: List[CharData]) -> Tuple[
-    ClusterGroup,
-    np.ndarray,
-    np.ndarray,
-    List[CharData],
-    Dict[int, float],
-    int
-]:
+def cluster_chars(data: List[CharMetrics]) -> Tuple[Dict[int, List[CharMetrics]], np.ndarray, np.ndarray, List[CharMetrics], Dict[int, float], int]:
     """Кластеризует символы и возвращает группы."""
-    # Исключаем пробел
-    #space: CharData = next(d for d in data if d["char"] == " ")
-    chars: List[CharData] = [d for d in data if d["char"] != " "]
+    chars = [c for c in data if c.char != " "]
+    
+    # Матрица признаков через getattr для объектов dataclass
+    X = np.array([[getattr(c, f) for f in CLUSTER_FEATURES] for c in chars])
+    scaler = StandardScaler()
+    X_scaled = scaler.fit_transform(X)
 
-    # Матрица признаков
-    X: np.ndarray = np.array([[d[f] for f in CLUSTER_FEATURES] for d in chars])
-    scaler: StandardScaler = StandardScaler()
-    X_scaled: np.ndarray = scaler.fit_transform(X)
-
-    best_k: int
-    scores: Dict[int, float]
     if USE_MANUAL_K:
-        best_k: int = MANUAL_K
-        scores: Dict[int, float] = {}
-        print(f"[i] Используем ручной k={best_k}")
+        best_k = MANUAL_K
+        _, scores = find_best_k(X_scaled)
+        print(f"[i] Используем ручной k={best_k} ",
+            f"(silhouette при этом k = {scores.get(best_k, 0):.3f})")
+        print(f"[i] Для сравнения: лучший по silhouette был бы k={max(scores, key=scores.get)} ",
+            f"со score={max(scores.values()):.3f}")
+        
     else:
         best_k, scores = find_best_k(X_scaled)
-        print(f"[i] Оптимальное число кластеров: {best_k} "
-            f"(silhouette = {scores[best_k]:.3f})")
+        print(f"[i] Оптимальное число кластеров: {best_k} (silhouette = {scores[best_k]:.3f})")
 
-    km: KMeans = KMeans(n_clusters=best_k, n_init=10, random_state=42)
-    labels: np.ndarray = km.fit_predict(X_scaled)
+    km = KMeans(n_clusters=best_k, n_init=10, random_state=42)
+    labels = km.fit_predict(X_scaled)
 
-    # PCA для визуализации
-    pca: PCA = PCA(n_components=2)
-    X_2d: np.ndarray = pca.fit_transform(X_scaled)
+    pca = PCA(n_components=2)
+    X_2d = pca.fit_transform(X_scaled)
 
-    # Группируем по кластерам
-    groups: ClusterGroup = {i: [] for i in range(best_k)}
-    for d, lbl, xy in zip(chars, labels, X_2d):
-        char_with_pca: CharData = {**d, "pca_x": float(xy[0]), "pca_y": float(xy[1])}
-        groups[lbl].append(char_with_pca)
+    groups: Dict[int, List[CharMetrics]] = {i: [] for i in range(best_k)}
+    for c, lbl, xy in zip(chars, labels, X_2d):
+        c.pca_x = float(xy[0])  # Добавляем динамически для визуализации
+        c.pca_y = float(xy[1])
+        groups[lbl].append(c)
 
-    # Сортируем внутри каждого кластера по brightness
     for g in groups.values():
-        g.sort(key=lambda c: c["brightness"])
+        g.sort(key=lambda item: item.brightness)
 
     return groups, X_2d, labels, chars, scores, best_k
 
 #endregion Кластеризация
 
-#region Описание кластеров
-# TODO: Необходимо доработать
-def describe_cluster(cluster_chars: List[CharData]) -> str:
-    avg: MetricsDict = {f: float(np.mean([c[f] for c in cluster_chars])) 
-                        for f in CLUSTER_FEATURES}
-
-    tags: List[str] = []
-
-    # Яркость и плотность (теперь в [0, 1])
-    if avg["brightness"] > 0.7:
-        tags.append("тёмные")
-    elif avg["brightness"] < 0.3:
-        tags.append("светлые")
-    
-    if avg["density"] > 0.6:
-        tags.append("плотные")
-    elif avg["density"] < 0.2:
-        tags.append("разреженные")
-
-    # Топология
-    if avg["holes"] > 0.5:
-        tags.append("дырчатые")
-    if avg["components"] > 0.3:
-        tags.append("разрозненные")
-    if avg["holes"] < 0.1 and avg["components"] < 0.2:
-        tags.append("сплошные")
-
-    # Euler number (нормализован, может быть отрицательным)
-    if avg["euler_number"] < 0.3:
-        tags.append("топологически сложные")
-    elif avg["euler_number"] > 0.7:
-        tags.append("многокомпонентные")
-
-    # Форма
-    if avg["solidity"] > 0.8:
-        tags.append("выпуклые")
-    elif avg["solidity"] < 0.5:
-        tags.append("вогнутые")
-
-    if avg["extent"] > 0.7:
-        tags.append("плотно заполняющие ячейку")
-    elif avg["extent"] < 0.3:
-        tags.append("малые относительно ячейки")
-
-    if avg["circularity"] > 0.7:
-        tags.append("округлые")
-    elif avg["circularity"] < 0.3:
-        tags.append("угловатые/линейные")
-
-    # Направленность
-    if avg["h_var"] > avg["v_var"] * 1.5 and avg["h_var"] > 0.1:
-        tags.append("горизонтальные")
-    elif avg["v_var"] > avg["h_var"] * 1.5 and avg["v_var"] > 0.1:
-        tags.append("вертикальные")
-
-    # Симметрия
-    if avg["h_sym"] > 0.8 and avg["v_sym"] > 0.8:
-        tags.append("симметричные")
-    elif avg["h_sym"] < 0.4 and avg["v_sym"] < 0.4:
-        tags.append("асимметричные")
-
-    # Равномерность
-    if avg["block_var"] < 0.1:
-        tags.append("равномерные")
-    elif avg["block_var"] > 0.3:
-        tags.append("угловатые")
-
-    # Edge density
-    if avg["edge_density"] > 0.7:
-        tags.append("резкие")
-    elif avg["edge_density"] < 0.3:
-        tags.append("мягкие")
-
-    return ", ".join(tags) if tags else "смешанные"
-
-#endregion Описание кластеров
-
 #region Визуализация
+
 def plot_clusters(
-    #groups: ClusterGroup,
     X_2d: np.ndarray,
     labels: np.ndarray,
-    chars: List[CharData],
+    chars: List[CharMetrics],
     scores: Dict[int, float],
     best_k: int
 ) -> None:
@@ -355,7 +228,8 @@ def plot_clusters(
     for i in range(best_k):
         mask: np.ndarray = labels == i
         pts: np.ndarray = X_2d[mask]
-        chs: List[str] = [chars[j]["char"] for j in np.where(mask)[0]]
+        # ИСПРАВЛЕНО: c.char вместо c["char"]
+        chs: List[str] = [chars[j].char for j in np.where(mask)[0]]
         ax.scatter(pts[:, 0], pts[:, 1], c=[cmap(i)], s=80,
                    label=f"Cluster {i}", edgecolor="black")
         for p, ch in zip(pts, chs):
@@ -383,18 +257,20 @@ def plot_clusters(
     plt.show()
     
 def plot_brightness_vs_metric(
-    data: List[CharData],
+    data: List[CharMetrics],
     metric: str = "edge_density",
     metric_label: str = "Edge Density"
 ) -> None:
     """График: яркость vs выбранная метрика."""
     fig, ax = plt.subplots(figsize=(14, 8))
     
-    # Исключаем пробел
-    chars: List[CharData] = [c for c in data if c["char"] != " "]
-    brightness: List[float] = [c["brightness"] for c in chars]
-    metric_values: List[float] = [c[metric] for c in chars]
-    char_labels: List[str] = [c["char"] for c in chars]
+    # Исключаем пробел (ИСПРАВЛЕНО: c.char)
+    chars: List[CharMetrics] = [c for c in data if c.char != " "]
+    
+    # ИСПРАВЛЕНО: обращение через точку и getattr для динамической метрики
+    brightness: List[float] = [c.brightness for c in chars]
+    metric_values: List[float] = [getattr(c, metric, 0.0) for c in chars]
+    char_labels: List[str] = [c.char for c in chars]
     
     # Scatter с цветовой кодировкой по яркости
     scatter = ax.scatter(brightness, metric_values, c=brightness, 
@@ -404,11 +280,11 @@ def plot_brightness_vs_metric(
     # Подписи символов
     for x, y, ch in zip(brightness, metric_values, char_labels):
         # Белый текст для тёмных символов (высокая яркость), чёрный для светлых
-        text_color: str = "white" if x > 150 else "black"
+        text_color: str = "white" if x > 0.5 else "black" # ИСПРАВЛЕНО: порог 0.5 т.к. данные нормализованы [0, 1]
         ax.text(x, y, ch, fontsize=10, ha="center", va="center",
                 color=text_color, fontweight="bold", zorder=3)
     
-    ax.set_xlabel("Brightness (заполненные пиксели)", fontsize=12)
+    ax.set_xlabel("Brightness (нормализованная)", fontsize=12)
     ax.set_ylabel(metric_label, fontsize=12)
     ax.set_title(f"ASCII символы: яркость vs {metric_label}", fontsize=14)
     ax.grid(alpha=0.3, zorder=1)
@@ -424,84 +300,60 @@ def plot_brightness_vs_metric(
 #endregion Визуализация
 
 #region Основная функция
+
 if __name__ == "__main__":
     os.makedirs(OUTPUT_DIR, exist_ok=True)
     
-    data: List[CharData] = analyze()
+    data = analyze()
+    data = normalize_metrics(data, to_percent=False)
     
-    data = normalize_metrics(data, to_percent=False)  # или True для процентов
-    
-
-    # Сохраняем полные метрики
+    # Сохраняем полные метрики (используем to_dict() из dataclass)
     with open(f"{OUTPUT_DIR}/ascii_full.json", "w", encoding="utf-8") as f:
-        json.dump(data, f, ensure_ascii=False, indent=2)
+        json.dump([c.to_dict() for c in data], f, ensure_ascii=False, indent=2)
 
-    groups: ClusterGroup
-    X_2d: np.ndarray
-    labels: np.ndarray
-    chars: List[CharData]
-    scores: Dict[int, float]
-    best_k: int
     groups, X_2d, labels, chars, scores, best_k = cluster_chars(data)
 
-    # Для PCA-подписей
-    pca: PCA = PCA(n_components=2)
-    X_features: np.ndarray = np.array([[d[f] for f in CLUSTER_FEATURES] for d in chars])
-    scaler: StandardScaler = StandardScaler()
-    pca.fit(scaler.fit_transform(X_features))
-    pca_explained: np.ndarray = pca.explained_variance_ratio_
-
-    # Вывод классов
     print("\n" + "=" * 70)
     print("СЕМАНТИЧЕСКАЯ ПАЛИТРА ASCII-СИМВОЛОВ")
     print("=" * 70)
 
-    # Сортируем классы по средней яркости
-    sorted_groups: List[Tuple[int, List[CharData]]] = sorted(
+    # Сортируем классы по средней яркости (ИСПРАВЛЕНО: c.brightness)
+    sorted_groups: List[Tuple[int, List[CharMetrics]]] = sorted(
         groups.items(),
-        key=lambda kv: float(np.mean([c["brightness"] for c in kv[1]]))
+        key=lambda kv: float(np.mean([c.brightness for c in kv[1]]))
     )
 
+    palette: List[PaletteEntry] = []
     for rank, (cid, members) in enumerate(sorted_groups, 1):
-        #desc: str = describe_cluster(members)
-        avg_b: float = float(np.mean([c["brightness"] for c in members]))
-        avg_d: float = float(np.mean([c["density"] for c in members]))
-        chars_str: str = "".join(c["char"] for c in members)
-
-        # print(f"\n▶ КЛАСС {rank}  |  {desc}")
-        print(f"\n▶ КЛАСС {rank}")
+        avg_b: float = float(np.mean([c.brightness for c in members]))
+        avg_d: float = float(np.mean([c.density for c in members]))
+        chars_str: str = "".join(c.char for c in members)
+        # Можно раскомментировать, если добавишь метод describe() в CharMetrics
+        desc: str = members[0].describe() 
+        
+        print(f"\n▶ КЛАСС {rank} | {desc}")
         print(f"  размер: {len(members):>2}  |  "
               f"яркость: {avg_b:>6.1f}  |  плотность: {avg_d:.3f}")
         print(f"  символы: {chars_str}")
 
-    #plot_clusters(groups, X_2d, labels, chars, scores, best_k)
+        palette.append({
+            "rank": rank,
+            # "description": desc,
+            "chars": [c.char for c in members],
+            "avg_brightness": avg_b,
+            "avg_density": avg_d,
+        })
+
     plot_clusters(X_2d, labels, chars, scores, best_k)
     
-    # График яркость vs edge density
-    # plot_brightness_vs_metric(data, "edge_density", "Edge Density (детализированность)")
+    # Раскомментируй для построения графиков:
+    # plot_brightness_vs_metric(data, "linearity", "Linearity (линеобразность)")
+    # plot_brightness_vs_metric(data, "holes", "Holes (дырки)")
 
-    # # Альтернативные варианты (раскомментируй при необходимости):
-    # plot_brightness_vs_metric(data, "holes", "Количество дырок")
-    # plot_brightness_vs_metric(data, "block_var", "Block Variance (равномерность)")
-    # plot_brightness_vs_metric(data, "solidity", "Solidity (выпуклость)")
-    # plot_brightness_vs_metric(data, "extent", "Extent (заполненность bbox)")
-    # plot_brightness_vs_metric(data, "circularity", "Circularity (округлость)")
-    # plot_brightness_vs_metric(data, "euler_number", "Euler Number (топология)")
-    
-
-    # Сохраняем палитру
-    palette: List[PaletteEntry] = []
-    for rank, (cid, members) in enumerate(sorted_groups, 1):
-        entry: PaletteEntry = {
-            "rank": rank,
-            #"description": describe_cluster(members),
-            "chars": [c["char"] for c in members],
-            "avg_brightness": float(np.mean([c["brightness"] for c in members])),
-            "avg_density":    float(np.mean([c["density"] for c in members])),
-        }
-        palette.append(entry)
-    
     with open(f"{OUTPUT_DIR}/ascii_palette.json", "w", encoding="utf-8") as f:
         json.dump(palette, f, ensure_ascii=False, indent=2)
-    print(f"\n[i] Палитра сохранена в ascii_palette.json")
+    print(f"\n[i] Палитра сохранена в {OUTPUT_DIR}/ascii_palette.json")
+    
+    
+    
 #endregion Основная функция
